@@ -70,9 +70,22 @@ def serve_any_other_file(path):
     print(f"Ruta completa: {full_path}")
     print(f"Archivo existe: {os.path.isfile(full_path)}")
     
-    # Si el archivo no existe, servir index.html para SPA routing
+    # Si el archivo no existe y es un asset específico (.js, .css, .ico, etc), devolver 404
+    # Solo servir index.html para rutas de navegación (SPA routing)
     if not os.path.isfile(full_path):
-        print(f"Archivo {path} no encontrado, sirviendo index.html")
+        print(f"Archivo {path} no encontrado")
+        
+        # No servir index.html para assets específicos que no existen
+        if (path.endswith('.js') or path.endswith('.css') or 
+            path.endswith('.ico') or path.endswith('.png') or 
+            path.endswith('.jpg') or path.endswith('.jpeg') or
+            path.endswith('.svg') or path.endswith('.woff') or 
+            path.endswith('.woff2') or path.endswith('.ttf')):
+            print(f"Asset {path} no encontrado, devolviendo 404")
+            return f"Asset not found: {path}", 404
+        
+        # Para rutas de navegación, servir index.html (SPA routing)
+        print(f"Ruta de navegación {path}, sirviendo index.html")
         path = 'index.html'
     
     # Establecer los tipos MIME correctos
@@ -89,6 +102,8 @@ def serve_any_other_file(path):
         mimetype = 'image/png'
     elif path.endswith('.jpg') or path.endswith('.jpeg'):
         mimetype = 'image/jpeg'
+    elif path.endswith('.svg'):
+        mimetype = 'image/svg+xml'
     
     try:
         response = send_from_directory(static_file_dir, path, mimetype=mimetype)
@@ -96,12 +111,15 @@ def serve_any_other_file(path):
         return response
     except Exception as e:
         print(f"Error sirviendo archivo {path}: {e}")
-        # Si hay cualquier error, intentar servir index.html
-        try:
-            return send_from_directory(static_file_dir, 'index.html', mimetype='text/html')
-        except Exception as e2:
-            print(f"Error crítico sirviendo index.html: {e2}")
-            return f"Error del servidor: no se puede servir {path}", 500
+        # Si hay cualquier error y no es un asset específico, intentar servir index.html
+        if not (path.endswith('.js') or path.endswith('.css') or path.endswith('.ico')):
+            try:
+                return send_from_directory(static_file_dir, 'index.html', mimetype='text/html')
+            except Exception as e2:
+                print(f"Error crítico sirviendo index.html: {e2}")
+                return f"Error del servidor: no se puede servir {path}", 500
+        else:
+            return f"Asset not found: {path}", 404
 
 
 # this only runs if `$ python src/main.py` is executed
