@@ -39,8 +39,24 @@ cat vite.config.js
 echo "Creando archivo .env.local para la construcción..."
 echo "VITE_BACKEND_URL=/api" > .env.local
 
+# Limpiar el directorio dist si existe
+if [ -d "dist" ]; then
+    echo "Limpiando directorio dist existente..."
+    rm -rf dist
+fi
+
 # Intentar construir el frontend con la variable de entorno establecida
 echo "Intentando construir la aplicación..."
-VITE_BACKEND_URL=/api npm run build || echo "La construcción del frontend falló pero continuaremos"
+VITE_BACKEND_URL=/api npm run build
+
+# Verificar si la construcción fue exitosa
+if [ $? -eq 0 ]; then
+    echo "✅ Construcción del frontend exitosa!"
+    echo "Contenido del directorio dist:"
+    ls -la dist/ || echo "Directorio dist no encontrado"
+else
+    echo "❌ La construcción del frontend falló"
+    exit 1
+fi
 
 echo "Fin del script de construcción"

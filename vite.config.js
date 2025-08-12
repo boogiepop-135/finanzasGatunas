@@ -2,7 +2,7 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import path from "path";
 
-// Configuración simplificada que funciona en la mayoría de entornos
+// Configuración optimizada para Railway
 export default defineConfig({
   plugins: [react()],
   server: {
@@ -10,15 +10,26 @@ export default defineConfig({
   },
   build: {
     outDir: "dist",
-    // Asegurarse de que los assets se generen con rutas relativas correctas
+    // Asegurar que los assets se generen con rutas absolutas para Railway
     assetsDir: "assets",
-    // Establecer la base URL como relativa
-    base: "./",
-    // Configuración explícita para Railway
+    // Configuración específica para Railway
     rollupOptions: {
-      input: path.resolve(__dirname, "index.html"), // Usar index.html como entrada principal
+      input: path.resolve(__dirname, "index.html"),
+      output: {
+        // Asegurar nombres consistentes para los archivos
+        entryFileNames: "assets/[name].[hash].js",
+        chunkFileNames: "assets/[name].[hash].js",
+        assetFileNames: "assets/[name].[hash].[ext]"
+      }
     },
+    // Generar sourcemaps para debugging en producción si es necesario
+    sourcemap: false,
+    // Optimización para Railway
+    minify: 'terser',
+    target: 'es2020'
   },
   // Configuración de archivos estáticos
   publicDir: "public",
+  // Asegurar que las rutas funcionen en Railway
+  base: "/",
 });
