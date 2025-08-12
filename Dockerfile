@@ -13,8 +13,8 @@ RUN apt-get update && apt-get install -y curl && \
 COPY package*.json ./
 COPY requirements.txt ./
 
-# Install Node.js dependencies
-RUN npm install
+# Install Node.js dependencies (with --force para evitar conflictos)
+RUN npm install --force
 
 # Install Python dependencies
 RUN pip install -r requirements.txt
@@ -23,7 +23,7 @@ RUN pip install -r requirements.txt
 COPY . .
 
 # Build frontend
-RUN npm run build
+RUN NODE_ENV=production npm run build
 
 # Create database tables
 RUN python -c "import os; os.environ['FLASK_APP']='src/app.py'; from src.app import app; from src.api.models import db; app.app_context().push(); db.create_all()" || echo "Database setup will be done at runtime"
