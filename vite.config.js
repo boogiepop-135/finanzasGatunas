@@ -10,6 +10,10 @@ export default defineConfig({
   },
   build: {
     outDir: "dist",
+    // Asegurarse de que los assets se generen con rutas relativas correctas
+    assetsDir: "assets",
+    // Establecer la base URL como relativa
+    base: "./",
     // Configuración explícita para Railway
     rollupOptions: {
       input: path.resolve(__dirname, "index.html"), // Usar index.html como entrada principal

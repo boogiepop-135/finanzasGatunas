@@ -20,8 +20,16 @@ else
 fi
 
 # Configurar variables de entorno para producción
-cp .env.production .env
+if [ -f ".env.production" ]; then
+    cp .env.production .env
+else
+    echo "NODE_ENV=production" > .env
+    echo "FLASK_ENV=production" >> .env
+    echo "FLASK_DEBUG=0" >> .env
+    echo "VITE_BACKEND_URL=/api" >> .env
+fi
 export NODE_ENV=production
+export VITE_BACKEND_URL=/api
 
 # Mostrar la configuración de Vite
 echo "Contenido de vite.config.js:"

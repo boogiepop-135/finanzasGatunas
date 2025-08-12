@@ -65,7 +65,18 @@ def sitemap():
 def serve_any_other_file(path):
     if not os.path.isfile(os.path.join(static_file_dir, path)):
         path = 'index.html'
-    response = send_from_directory(static_file_dir, path)
+    
+    # Establecer los tipos MIME correctos para archivos JS
+    if path.endswith('.js'):
+        mimetype = 'application/javascript'
+    elif path.endswith('.css'):
+        mimetype = 'text/css'
+    elif path.endswith('.html'):
+        mimetype = 'text/html'
+    else:
+        mimetype = None
+    
+    response = send_from_directory(static_file_dir, path, mimetype=mimetype)
     response.cache_control.max_age = 0  # avoid cache memory
     return response
 
