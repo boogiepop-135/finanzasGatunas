@@ -19,14 +19,14 @@ export default defineConfig({
         // Asegurar nombres consistentes para los archivos
         entryFileNames: "assets/[name].[hash].js",
         chunkFileNames: "assets/[name].[hash].js",
-        assetFileNames: "assets/[name].[hash].[ext]"
-      }
+        assetFileNames: "assets/[name].[hash].[ext]",
+      },
     },
     // Generar sourcemaps para debugging en producción si es necesario
     sourcemap: false,
     // Optimización para Railway
-    minify: 'terser',
-    target: 'es2020'
+    minify: "terser",
+    target: "es2020",
   },
   // Configuración de archivos estáticos
   publicDir: "public",

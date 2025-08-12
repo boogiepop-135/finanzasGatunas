@@ -10,20 +10,20 @@ const Main = () => {
     // En Railway, definimos un valor predeterminado para asegurar que la aplicación funcione
     const backendUrl = import.meta.env.VITE_BACKEND_URL || '/api';
     console.log('VITE_BACKEND_URL:', backendUrl); // Debugging log
-    
+
     // Solo mostrar el componente BackendURL en desarrollo cuando no hay URL configurada
-    if(!backendUrl && process.env.NODE_ENV !== 'production') return (
+    if (!backendUrl && process.env.NODE_ENV !== 'production') return (
         <React.StrictMode>
-              <BackendURL/ >
+            <BackendURL />
         </React.StrictMode>
     );
-    
+
     // Siempre renderizar la aplicación en producción
     return (
-        <React.StrictMode>  
+        <React.StrictMode>
             {/* Provide global state to all components */}
-            <StoreProvider backendUrl={backendUrl}> 
-                {/* Set up routing for the application */} 
+            <StoreProvider backendUrl={backendUrl}>
+                {/* Set up routing for the application */}
                 <RouterProvider router={router}>
                 </RouterProvider>
             </StoreProvider>

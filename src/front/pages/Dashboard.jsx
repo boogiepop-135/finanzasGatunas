@@ -1,11 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
-import { useGlobalReducer } from "../hooks/useGlobalReducer";
+import useGlobalReducer from "../hooks/useGlobalReducer";
 
 const Dashboard = () => {
     const { store } = useGlobalReducer();
     const backendUrl = store.backendUrl || '/api';
-    
+
     const [summary, setSummary] = useState({
         income: 0,
         expenses: 0,

@@ -1,4 +1,4 @@
-import { useGlobalReducer } from "./useGlobalReducer";
+import useGlobalReducer from "./useGlobalReducer";
 
 /**
  * Hook personalizado para obtener la URL del backend
@@ -16,7 +16,7 @@ export const useBackendUrl = () => {
  */
 export const useApiUrl = () => {
     const backendUrl = useBackendUrl();
-    
+
     return (endpoint) => {
         // Asegurar que el endpoint comience con /
         const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
