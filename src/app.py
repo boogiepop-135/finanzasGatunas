@@ -18,9 +18,8 @@ load_dotenv()
 # from models import Person
 
 ENV = "development" if os.getenv("FLASK_DEBUG") == "1" else "production"
-static_file_dir = os.path.join(os.path.dirname(
-    os.path.realpath(__file__)), '../dist')
-app = Flask(__name__)
+static_file_dir = os.path.join(os.path.dirname(os.path.realpath(__file__)), '../dist')
+app = Flask(__name__, static_folder='../dist', static_url_path='')
 app.url_map.strict_slashes = False
 
 # database condiguration
@@ -60,115 +59,23 @@ def sitemap():
         return generate_sitemap(app)
     return send_from_directory(static_file_dir, 'index.html')
 
-# Ruta específica para archivos estáticos en /assets/
-@app.route('/assets/<path:filename>')
-def serve_assets(filename):
-    assets_path = os.path.join(static_file_dir, 'assets')
-    
-    try:
-        # Verificar que el archivo existe
-        full_path = os.path.join(assets_path, filename)
-        
-        if not os.path.isfile(full_path):
-            return f"Asset not found: {filename}", 404
-        
-        # Establecer tipos MIME para assets
-        mimetype = None
-        if filename.endswith('.js'):
-            mimetype = 'application/javascript'
-        elif filename.endswith('.css'):
-            mimetype = 'text/css'
-        elif filename.endswith('.png'):
-            mimetype = 'image/png'
-        elif filename.endswith('.jpg') or filename.endswith('.jpeg'):
-            mimetype = 'image/jpeg'
-        elif filename.endswith('.svg'):
-            mimetype = 'image/svg+xml'
-        elif filename.endswith('.woff'):
-            mimetype = 'font/woff'
-        elif filename.endswith('.woff2'):
-            mimetype = 'font/woff2'
-        elif filename.endswith('.ttf'):
-            mimetype = 'font/ttf'
-        
-        response = send_from_directory(assets_path, filename, mimetype=mimetype)
-        # Cache largo para assets con hash en el nombre
-        response.cache_control.max_age = 31536000  # 1 año
-        return response
-        
-    except Exception as e:
-        return f"Asset error: {filename} - {str(e)}", 500
-
-# Ruta específica para el favicon
-@app.route('/4geeks.ico')
-def serve_favicon():
-    try:
-        response = send_from_directory(static_file_dir, '4geeks.ico', mimetype='image/x-icon')
-        response.cache_control.max_age = 86400  # 1 día
-        return response
-    except Exception as e:
-        return "Favicon not found", 404
-
 # any other endpoint will try to serve it like a static file
 @app.route('/<path:path>', methods=['GET'])
 def serve_any_other_file(path):
-    # Normalizar la ruta para evitar problemas con barras
-    path = path.replace('\\', '/')
-    full_path = os.path.join(static_file_dir, path)
-    
-    # Verificar si el archivo existe
-    if os.path.isfile(full_path):
-        # El archivo existe, servirlo directamente
-        try:
-            # Establecer tipos MIME correctos
-            mimetype = None
-            if path.endswith('.js'):
-                mimetype = 'application/javascript'
-            elif path.endswith('.css'):
-                mimetype = 'text/css'
-            elif path.endswith('.html'):
-                mimetype = 'text/html'
-            elif path.endswith('.ico'):
-                mimetype = 'image/x-icon'
-            elif path.endswith('.png'):
-                mimetype = 'image/png'
-            elif path.endswith('.jpg') or path.endswith('.jpeg'):
-                mimetype = 'image/jpeg'
-            elif path.endswith('.svg'):
-                mimetype = 'image/svg+xml'
-            elif path.endswith('.woff') or path.endswith('.woff2'):
-                mimetype = 'font/woff' if path.endswith('.woff') else 'font/woff2'
-            elif path.endswith('.ttf'):
-                mimetype = 'font/ttf'
-            
-            response = send_from_directory(static_file_dir, path, mimetype=mimetype)
-            
-            # Cache control para assets
-            if path.startswith('assets/') or path.endswith(('.js', '.css', '.png', '.jpg', '.ico')):
-                response.cache_control.max_age = 31536000  # 1 año para assets con hash
-            else:
-                response.cache_control.max_age = 0  # Sin cache para index.html
-                
-            return response
-            
-        except Exception as e:
-            return f"Error serving file: {path}", 500
-    
-    else:
-        # El archivo no existe
-        # Para assets específicos que no existen, devolver 404
-        asset_extensions = ['.js', '.css', '.ico', '.png', '.jpg', '.jpeg', '.svg', '.woff', '.woff2', '.ttf', '.map']
-        if any(path.endswith(ext) for ext in asset_extensions):
-            return f"Asset not found: {path}", 404
-        
-        # Para rutas de navegación SPA, servir index.html
-        try:
-            response = send_from_directory(static_file_dir, 'index.html', mimetype='text/html')
-            response.cache_control.max_age = 0  # Sin cache para navegación SPA
-            return response
-            
-        except Exception as e:
-            return f"Server error: cannot serve {path}", 500
+    try:
+        # Intentar servir el archivo desde el directorio static
+        return send_from_directory(static_file_dir, path)
+    except Exception:
+        # Si no se encuentra, verificar si es una ruta de asset
+        if path.startswith('assets/') or path.endswith(('.js', '.css', '.png', '.jpg', '.ico', '.svg')):
+            # Es un asset que no existe, devolver 404
+            return f"File not found: {path}", 404
+        else:
+            # Es una ruta de navegación SPA, servir index.html
+            try:
+                return send_from_directory(static_file_dir, 'index.html')
+            except Exception:
+                return "Application not found", 404
 
 
 # this only runs if `$ python src/main.py` is executed
