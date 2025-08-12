@@ -9,8 +9,8 @@ cmds = [
 
 [phases.build]
 cmds = [
-    "cp .env.production .env",
-    "NODE_ENV=production npm run build"
+    "chmod +x ./railway_build_fix.sh",
+    "./railway_build_fix.sh"
 ]
 
 [start]

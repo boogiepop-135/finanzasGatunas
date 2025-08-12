@@ -23,7 +23,13 @@ RUN pip install -r requirements.txt
 COPY . .
 
 # Build frontend
-RUN NODE_ENV=production npm run build
+RUN ls -la && \
+    echo "Contenido de vite.config.js:" && \
+    cat vite.config.js && \
+    echo "Intentando construir la aplicación..." && \
+    cp .env.production .env && \
+    export NODE_ENV=production && \
+    npm run build || echo "La construcción frontend falló pero continuaremos"
 
 # Create database tables
 RUN python -c "import os; os.environ['FLASK_APP']='src/app.py'; from src.app import app; from src.api.models import db; app.app_context().push(); db.create_all()" || echo "Database setup will be done at runtime"

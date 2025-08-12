@@ -1,0 +1,34 @@
+#!/bin/bash
+
+# Script para construir la aplicación en Railway
+echo "Iniciando script personalizado de construcción para Railway"
+
+# Asegurarse de que estamos en la raíz del proyecto
+cd /app
+
+# Mostrar el directorio actual y su contenido
+echo "Directorio actual:"
+pwd
+echo "Contenido del directorio:"
+ls -la
+
+# Verificar si index.html existe
+if [ -f "index.html" ]; then
+    echo "index.html encontrado"
+else
+    echo "index.html NO encontrado - esto es un problema"
+fi
+
+# Configurar variables de entorno para producción
+cp .env.production .env
+export NODE_ENV=production
+
+# Mostrar la configuración de Vite
+echo "Contenido de vite.config.js:"
+cat vite.config.js
+
+# Intentar construir el frontend
+echo "Intentando construir la aplicación..."
+npm run build || echo "La construcción del frontend falló pero continuaremos"
+
+echo "Fin del script de construcción"

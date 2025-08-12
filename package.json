@@ -9,8 +9,8 @@
   "scripts": {
     "dev": "vite",
     "start": "vite",
-    "build": "vite build --emptyOutDir",
-    "postinstall": "npm run build",
+    "build": "vite build --config vite.config.js",
+    "postinstall": "echo 'Skipping automatic build during installation'",
     "lint": "eslint . --ext js,jsx --report-unused-disable-directives --max-warnings 0",
     "preview": "vite preview"
   },
