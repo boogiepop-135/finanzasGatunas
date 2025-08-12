@@ -6,10 +6,14 @@ import { Footer } from "../components/Footer"
 // Base component that maintains the navbar and footer throughout the page and the scroll to top functionality.
 export const Layout = () => {
     return (
-        <ScrollToTop>
-            <Navbar />
-                <Outlet />
-            <Footer />
-        </ScrollToTop>
+        <div className="app-container">
+            <ScrollToTop>
+                <Navbar />
+                <main className="flex-fill">
+                    <Outlet />
+                </main>
+                <Footer />
+            </ScrollToTop>
+        </div>
     )
 }
