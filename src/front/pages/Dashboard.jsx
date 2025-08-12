@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from "react";
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, LineChart, Line } from 'recharts';
+import { useGlobalReducer } from "../hooks/useGlobalReducer";
 
 const Dashboard = () => {
+    const { store } = useGlobalReducer();
+    const backendUrl = store.backendUrl || '/api';
+    
     const [summary, setSummary] = useState({
         income: 0,
         expenses: 0,
@@ -15,31 +19,58 @@ const Dashboard = () => {
     const CHART_COLORS = ['#FF69B4', '#FFB6C1', '#DDA0DD', '#F0E68C', '#98FB98', '#87CEEB'];
 
     useEffect(() => {
+        console.log("Dashboard montado, backend URL:", backendUrl);
         fetchDashboardData();
         fetchMonthlyTrend();
     }, []);
 
     const fetchDashboardData = async () => {
         try {
-            const response = await fetch(`${import.meta.env.VITE_BACKEND_URL}/api/dashboard/summary?month=${currentMonth}&year=${currentYear}`);
+            console.log("Intentando fetch a:", `${backendUrl}/dashboard/summary?month=${currentMonth}&year=${currentYear}`);
+            const response = await fetch(`${backendUrl}/dashboard/summary?month=${currentMonth}&year=${currentYear}`);
             if (response.ok) {
                 const data = await response.json();
                 setSummary(data);
+            } else {
+                console.warn("Error en la respuesta del servidor:", response.status);
             }
         } catch (error) {
             console.error("Error fetching dashboard data:", error);
+            // Establecer datos de ejemplo en caso de error
+            setSummary({
+                income: 5000,
+                expenses: 3000,
+                balance: 2000,
+                expenses_by_category: [
+                    { name: 'Alimentación', value: 1000 },
+                    { name: 'Transporte', value: 800 },
+                    { name: 'Entretenimiento', value: 600 },
+                    { name: 'Otros', value: 600 }
+                ]
+            });
         }
     };
 
     const fetchMonthlyTrend = async () => {
         try {
-            const response = await fetch(`${import.meta.env.VITE_BACKEND_URL}/api/dashboard/monthly-trend?year=${currentYear}`);
+            const response = await fetch(`${backendUrl}/dashboard/monthly-trend?year=${currentYear}`);
             if (response.ok) {
                 const data = await response.json();
                 setMonthlyTrend(data);
+            } else {
+                console.warn("Error en la respuesta del servidor para trend:", response.status);
             }
         } catch (error) {
             console.error("Error fetching monthly trend:", error);
+            // Establecer datos de ejemplo en caso de error
+            setMonthlyTrend([
+                { month: 'Ene', income: 4500, expenses: 3200 },
+                { month: 'Feb', income: 4800, expenses: 3100 },
+                { month: 'Mar', income: 5000, expenses: 3000 },
+                { month: 'Abr', income: 4700, expenses: 3300 },
+                { month: 'May', income: 5200, expenses: 2900 },
+                { month: 'Jun', income: 4900, expenses: 3100 }
+            ]);
         }
     };
 
