@@ -1,6 +1,10 @@
-export const initialStore=()=>{
+export const initialStore=(backendUrl)=>{
+  // Establecer la URL del backend, con valor predeterminado '/api' para producción
+  const apiUrl = backendUrl || import.meta.env.VITE_BACKEND_URL || '/api';
+  
   return{
     message: null,
+    backendUrl: apiUrl, // Guardar la URL del backend en el estado global
     todos: [
       {
         id: 1,

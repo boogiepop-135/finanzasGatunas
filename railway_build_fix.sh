@@ -35,8 +35,12 @@ export VITE_BACKEND_URL=/api
 echo "Contenido de vite.config.js:"
 cat vite.config.js
 
-# Intentar construir el frontend
+# Crear un archivo .env.local con la configuración necesaria
+echo "Creando archivo .env.local para la construcción..."
+echo "VITE_BACKEND_URL=/api" > .env.local
+
+# Intentar construir el frontend con la variable de entorno establecida
 echo "Intentando construir la aplicación..."
-npm run build || echo "La construcción del frontend falló pero continuaremos"
+VITE_BACKEND_URL=/api npm run build || echo "La construcción del frontend falló pero continuaremos"
 
 echo "Fin del script de construcción"

@@ -25,6 +25,11 @@
   </head>
   <body>
     <div id="root"></div>
+    <!-- Asegurarse de que se cargue el frontend correctamente -->
+    <script>
+      // Definir variables globales para evitar problemas
+      window.BACKEND_URL = '/api';
+    </script>
     <script type="module" src="/src/front/main.jsx"></script>
     <script
       src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"

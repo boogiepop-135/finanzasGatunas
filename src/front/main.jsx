@@ -7,16 +7,22 @@ import { StoreProvider } from './hooks/useGlobalReducer';  // Import the StorePr
 import { BackendURL } from './components/BackendURL';
 
 const Main = () => {
+    // En Railway, definimos un valor predeterminado para asegurar que la aplicación funcione
+    const backendUrl = import.meta.env.VITE_BACKEND_URL || '/api';
+    console.log('VITE_BACKEND_URL:', backendUrl); // Debugging log
     
-    if(! import.meta.env.VITE_BACKEND_URL ||  import.meta.env.VITE_BACKEND_URL == "") return (
+    // Solo mostrar el componente BackendURL en desarrollo cuando no hay URL configurada
+    if(!backendUrl && process.env.NODE_ENV !== 'production') return (
         <React.StrictMode>
               <BackendURL/ >
         </React.StrictMode>
-        );
+    );
+    
+    // Siempre renderizar la aplicación en producción
     return (
         <React.StrictMode>  
             {/* Provide global state to all components */}
-            <StoreProvider> 
+            <StoreProvider backendUrl={backendUrl}> 
                 {/* Set up routing for the application */} 
                 <RouterProvider router={router}>
                 </RouterProvider>
