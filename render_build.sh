@@ -5,6 +5,6 @@ set -o errexit
 npm install
 npm run build
 
-pipenv install
+pip install -r requirements.txt
 
-pipenv run upgrade
+python -c "from src.app import app; from src.api.models import db; app.app_context().push(); db.create_all()"
