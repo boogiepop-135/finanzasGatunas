@@ -19,7 +19,7 @@ load_dotenv()
 
 ENV = "development" if os.getenv("FLASK_DEBUG") == "1" else "production"
 static_file_dir = os.path.join(os.path.dirname(
-    os.path.realpath(__file__)), '../dist/')
+    os.path.realpath(__file__)), '../dist')
 app = Flask(__name__)
 app.url_map.strict_slashes = False
 
@@ -65,11 +65,13 @@ def sitemap():
 def serve_assets(filename):
     assets_path = os.path.join(static_file_dir, 'assets')
     
-    if ENV == "development":
-        print(f"Sirviendo asset: assets/{filename}")
-        print(f"Ruta assets: {assets_path}")
-    
     try:
+        # Verificar que el archivo existe
+        full_path = os.path.join(assets_path, filename)
+        
+        if not os.path.isfile(full_path):
+            return f"Asset not found: {filename}", 404
+        
         # Establecer tipos MIME para assets
         mimetype = None
         if filename.endswith('.js'):
@@ -95,9 +97,7 @@ def serve_assets(filename):
         return response
         
     except Exception as e:
-        if ENV == "development":
-            print(f"Error sirviendo asset {filename}: {e}")
-        return f"Asset not found: {filename}", 404
+        return f"Asset error: {filename} - {str(e)}", 500
 
 # Ruta específica para el favicon
 @app.route('/4geeks.ico')
@@ -107,8 +107,6 @@ def serve_favicon():
         response.cache_control.max_age = 86400  # 1 día
         return response
     except Exception as e:
-        if ENV == "development":
-            print(f"Error sirviendo favicon: {e}")
         return "Favicon not found", 404
 
 # any other endpoint will try to serve it like a static file
@@ -117,13 +115,6 @@ def serve_any_other_file(path):
     # Normalizar la ruta para evitar problemas con barras
     path = path.replace('\\', '/')
     full_path = os.path.join(static_file_dir, path)
-    
-    # Log para debugging en development
-    if ENV == "development":
-        print(f"Solicitando archivo: {path}")
-        print(f"Ruta completa: {full_path}")
-        print(f"Static dir: {static_file_dir}")
-        print(f"Archivo existe: {os.path.isfile(full_path)}")
     
     # Verificar si el archivo existe
     if os.path.isfile(full_path):
@@ -161,34 +152,22 @@ def serve_any_other_file(path):
             return response
             
         except Exception as e:
-            if ENV == "development":
-                print(f"Error sirviendo archivo {path}: {e}")
             return f"Error serving file: {path}", 500
     
     else:
         # El archivo no existe
-        if ENV == "development":
-            print(f"Archivo {path} no encontrado")
-        
         # Para assets específicos que no existen, devolver 404
         asset_extensions = ['.js', '.css', '.ico', '.png', '.jpg', '.jpeg', '.svg', '.woff', '.woff2', '.ttf', '.map']
         if any(path.endswith(ext) for ext in asset_extensions):
-            if ENV == "development":
-                print(f"Asset {path} no encontrado, devolviendo 404")
             return f"Asset not found: {path}", 404
         
         # Para rutas de navegación SPA, servir index.html
         try:
-            if ENV == "development":
-                print(f"Ruta de navegación {path}, sirviendo index.html")
-            
             response = send_from_directory(static_file_dir, 'index.html', mimetype='text/html')
             response.cache_control.max_age = 0  # Sin cache para navegación SPA
             return response
             
         except Exception as e:
-            if ENV == "development":
-                print(f"Error crítico sirviendo index.html: {e}")
             return f"Server error: cannot serve {path}", 500
 
 
