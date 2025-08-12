@@ -60,66 +60,136 @@ def sitemap():
         return generate_sitemap(app)
     return send_from_directory(static_file_dir, 'index.html')
 
+# Ruta específica para archivos estáticos en /assets/
+@app.route('/assets/<path:filename>')
+def serve_assets(filename):
+    assets_path = os.path.join(static_file_dir, 'assets')
+    
+    if ENV == "development":
+        print(f"Sirviendo asset: assets/{filename}")
+        print(f"Ruta assets: {assets_path}")
+    
+    try:
+        # Establecer tipos MIME para assets
+        mimetype = None
+        if filename.endswith('.js'):
+            mimetype = 'application/javascript'
+        elif filename.endswith('.css'):
+            mimetype = 'text/css'
+        elif filename.endswith('.png'):
+            mimetype = 'image/png'
+        elif filename.endswith('.jpg') or filename.endswith('.jpeg'):
+            mimetype = 'image/jpeg'
+        elif filename.endswith('.svg'):
+            mimetype = 'image/svg+xml'
+        elif filename.endswith('.woff'):
+            mimetype = 'font/woff'
+        elif filename.endswith('.woff2'):
+            mimetype = 'font/woff2'
+        elif filename.endswith('.ttf'):
+            mimetype = 'font/ttf'
+        
+        response = send_from_directory(assets_path, filename, mimetype=mimetype)
+        # Cache largo para assets con hash en el nombre
+        response.cache_control.max_age = 31536000  # 1 año
+        return response
+        
+    except Exception as e:
+        if ENV == "development":
+            print(f"Error sirviendo asset {filename}: {e}")
+        return f"Asset not found: {filename}", 404
+
+# Ruta específica para el favicon
+@app.route('/4geeks.ico')
+def serve_favicon():
+    try:
+        response = send_from_directory(static_file_dir, '4geeks.ico', mimetype='image/x-icon')
+        response.cache_control.max_age = 86400  # 1 día
+        return response
+    except Exception as e:
+        if ENV == "development":
+            print(f"Error sirviendo favicon: {e}")
+        return "Favicon not found", 404
+
 # any other endpoint will try to serve it like a static file
 @app.route('/<path:path>', methods=['GET'])
 def serve_any_other_file(path):
+    # Normalizar la ruta para evitar problemas con barras
+    path = path.replace('\\', '/')
     full_path = os.path.join(static_file_dir, path)
     
-    # Log para debugging
-    print(f"Solicitando archivo: {path}")
-    print(f"Ruta completa: {full_path}")
-    print(f"Archivo existe: {os.path.isfile(full_path)}")
+    # Log para debugging en development
+    if ENV == "development":
+        print(f"Solicitando archivo: {path}")
+        print(f"Ruta completa: {full_path}")
+        print(f"Static dir: {static_file_dir}")
+        print(f"Archivo existe: {os.path.isfile(full_path)}")
     
-    # Si el archivo no existe y es un asset específico (.js, .css, .ico, etc), devolver 404
-    # Solo servir index.html para rutas de navegación (SPA routing)
-    if not os.path.isfile(full_path):
-        print(f"Archivo {path} no encontrado")
+    # Verificar si el archivo existe
+    if os.path.isfile(full_path):
+        # El archivo existe, servirlo directamente
+        try:
+            # Establecer tipos MIME correctos
+            mimetype = None
+            if path.endswith('.js'):
+                mimetype = 'application/javascript'
+            elif path.endswith('.css'):
+                mimetype = 'text/css'
+            elif path.endswith('.html'):
+                mimetype = 'text/html'
+            elif path.endswith('.ico'):
+                mimetype = 'image/x-icon'
+            elif path.endswith('.png'):
+                mimetype = 'image/png'
+            elif path.endswith('.jpg') or path.endswith('.jpeg'):
+                mimetype = 'image/jpeg'
+            elif path.endswith('.svg'):
+                mimetype = 'image/svg+xml'
+            elif path.endswith('.woff') or path.endswith('.woff2'):
+                mimetype = 'font/woff' if path.endswith('.woff') else 'font/woff2'
+            elif path.endswith('.ttf'):
+                mimetype = 'font/ttf'
+            
+            response = send_from_directory(static_file_dir, path, mimetype=mimetype)
+            
+            # Cache control para assets
+            if path.startswith('assets/') or path.endswith(('.js', '.css', '.png', '.jpg', '.ico')):
+                response.cache_control.max_age = 31536000  # 1 año para assets con hash
+            else:
+                response.cache_control.max_age = 0  # Sin cache para index.html
+                
+            return response
+            
+        except Exception as e:
+            if ENV == "development":
+                print(f"Error sirviendo archivo {path}: {e}")
+            return f"Error serving file: {path}", 500
+    
+    else:
+        # El archivo no existe
+        if ENV == "development":
+            print(f"Archivo {path} no encontrado")
         
-        # No servir index.html para assets específicos que no existen
-        if (path.endswith('.js') or path.endswith('.css') or 
-            path.endswith('.ico') or path.endswith('.png') or 
-            path.endswith('.jpg') or path.endswith('.jpeg') or
-            path.endswith('.svg') or path.endswith('.woff') or 
-            path.endswith('.woff2') or path.endswith('.ttf')):
-            print(f"Asset {path} no encontrado, devolviendo 404")
+        # Para assets específicos que no existen, devolver 404
+        asset_extensions = ['.js', '.css', '.ico', '.png', '.jpg', '.jpeg', '.svg', '.woff', '.woff2', '.ttf', '.map']
+        if any(path.endswith(ext) for ext in asset_extensions):
+            if ENV == "development":
+                print(f"Asset {path} no encontrado, devolviendo 404")
             return f"Asset not found: {path}", 404
         
-        # Para rutas de navegación, servir index.html (SPA routing)
-        print(f"Ruta de navegación {path}, sirviendo index.html")
-        path = 'index.html'
-    
-    # Establecer los tipos MIME correctos
-    mimetype = None
-    if path.endswith('.js'):
-        mimetype = 'application/javascript'
-    elif path.endswith('.css'):
-        mimetype = 'text/css'
-    elif path.endswith('.html'):
-        mimetype = 'text/html'
-    elif path.endswith('.ico'):
-        mimetype = 'image/x-icon'
-    elif path.endswith('.png'):
-        mimetype = 'image/png'
-    elif path.endswith('.jpg') or path.endswith('.jpeg'):
-        mimetype = 'image/jpeg'
-    elif path.endswith('.svg'):
-        mimetype = 'image/svg+xml'
-    
-    try:
-        response = send_from_directory(static_file_dir, path, mimetype=mimetype)
-        response.cache_control.max_age = 0  # avoid cache memory
-        return response
-    except Exception as e:
-        print(f"Error sirviendo archivo {path}: {e}")
-        # Si hay cualquier error y no es un asset específico, intentar servir index.html
-        if not (path.endswith('.js') or path.endswith('.css') or path.endswith('.ico')):
-            try:
-                return send_from_directory(static_file_dir, 'index.html', mimetype='text/html')
-            except Exception as e2:
-                print(f"Error crítico sirviendo index.html: {e2}")
-                return f"Error del servidor: no se puede servir {path}", 500
-        else:
-            return f"Asset not found: {path}", 404
+        # Para rutas de navegación SPA, servir index.html
+        try:
+            if ENV == "development":
+                print(f"Ruta de navegación {path}, sirviendo index.html")
+            
+            response = send_from_directory(static_file_dir, 'index.html', mimetype='text/html')
+            response.cache_control.max_age = 0  # Sin cache para navegación SPA
+            return response
+            
+        except Exception as e:
+            if ENV == "development":
+                print(f"Error crítico sirviendo index.html: {e}")
+            return f"Server error: cannot serve {path}", 500
 
 
 # this only runs if `$ python src/main.py` is executed
