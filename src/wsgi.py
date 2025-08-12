@@ -3,6 +3,9 @@
 
 from app import app
 
+# Para que Gunicorn pueda encontrar la aplicación
+application = app
+
 # Initialize database tables
 with app.app_context():
     from api.models import db

@@ -12,7 +12,7 @@ export default defineConfig({
     outDir: "dist",
     // Configuración explícita para Railway
     rollupOptions: {
-      input: path.resolve(__dirname, "index.js"), // Usamos index.js como entrada en lugar de index.html
+      input: path.resolve(__dirname, "index.html"), // Usar index.html como entrada principal
     },
   },
   // Configuración de archivos estáticos
