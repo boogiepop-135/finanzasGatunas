@@ -1,3 +1,3 @@
 #!/bin/bash
-echo "🚀 Iniciando aplicación Python..."
-python app.py
+echo "🚀 Iniciando aplicación Python con Gunicorn..."
+gunicorn -c gunicorn.conf.py wsgi:app
