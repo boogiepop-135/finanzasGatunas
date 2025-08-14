@@ -19,7 +19,7 @@ def main():
             "--bind", f"0.0.0.0:{os.environ.get('PORT', '3000')}",
             "--workers", "1",
             "--timeout", "30",
-            "wsgi:app"
+            "wsgi:application"
         ], check=True)
     except subprocess.CalledProcessError as e:
         print(f"❌ Error ejecutando gunicorn: {e}")
