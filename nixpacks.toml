@@ -1,21 +1,20 @@
 [phases.setup]
-nixPkgs = ["nodejs", "python3", "python3Packages.pip"]
+nixPkgs = ["nodejs_20", "python311", "postgresql"]
 
 [phases.install]
 cmds = [
-    "npm install",
-    "pip install -r requirements.txt"
+    "chmod +x railway_build.sh",
+    "./railway_build.sh"
 ]
 
 [phases.build]
 cmds = [
-    "chmod +x ./railway_build_fix.sh",
-    "./railway_build_fix.sh"
+    "echo 'Build phase completada'"
 ]
 
 [start]
-cmd = "gunicorn wsgi --chdir ./src/ --bind 0.0.0.0:$PORT"
+cmd = "python railway_app.py"
 
 [variables]
-FLASK_APP = "src/app.py"
-FLASK_ENV = "production"
+NODE_ENV = "production"
+PYTHONUNBUFFERED = "1"
