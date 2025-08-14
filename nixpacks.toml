@@ -1,19 +1,14 @@
 [phases.setup]
-nixPkgs = ["nodejs_20", "python311", "postgresql"]
+nixPkgs = ["nodejs_20", "python311"]
 
 [phases.install]
 cmds = [
-    "chmod +x railway_build.sh",
-    "./railway_build.sh"
-]
-
-[phases.build]
-cmds = [
-    "echo 'Build phase completada'"
+    "chmod +x railway_build_test.sh",
+    "./railway_build_test.sh"
 ]
 
 [start]
-cmd = "python railway_app.py"
+cmd = "python test_app.py"
 
 [variables]
 NODE_ENV = "production"
