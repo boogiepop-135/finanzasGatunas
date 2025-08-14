@@ -1,30 +1,28 @@
-#!/usr/bin/env bash
-# Railway build script for Finanzas Gatunas
-set -o errexit
+#!/bin/bash
 
-echo "🐱 Building Finanzas Gatunas..."
+echo "🚀 Iniciando build para Railway..."
 
-# Install Node.js dependencies and build frontend
-echo "📦 Installing Node.js dependencies..."
+# Instalar dependencias
+echo "📦 Instalando dependencias..."
 npm install
 
-echo "🏗️ Building React frontend..."
+# Construir el frontend
+echo "🔨 Construyendo el frontend..."
 npm run build
 
-# Install Python dependencies
-echo "🐍 Installing Python dependencies..."
+# Verificar que el build se completó
+if [ ! -d "dist" ]; then
+    echo "❌ Error: El directorio dist no se creó"
+    exit 1
+fi
+
+echo "✅ Build completado exitosamente!"
+echo "📁 Contenido del directorio dist:"
+ls -la dist/
+
+# Instalar dependencias de Python
+echo "🐍 Instalando dependencias de Python..."
 pip install -r requirements.txt
 
-# Run database migrations
-echo "🗄️ Setting up database..."
-python -c "
-import os
-os.environ['FLASK_APP'] = 'src/app.py'
-from src.app import app
-from src.api.models import db
-with app.app_context():
-    db.create_all()
-    print('Database tables created successfully!')
-"
-
-echo "✅ Build completed successfully!"
+echo "✅ Script de build completado!"
+echo "🚀 La aplicación está lista para ejecutarse con: python railway_app.py"
