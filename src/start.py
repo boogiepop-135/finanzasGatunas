@@ -1,21 +1,17 @@
 #!/usr/bin/env python3
 """
-Script de inicio para Railway
+Script de inicio para Railway (desde directorio src)
 """
 import os
 import subprocess
 import sys
 
 def main():
-    print("🚀 Iniciando aplicación en Railway...")
+    print("🚀 Iniciando aplicación en Railway desde src...")
     print(f"📅 Puerto: {os.environ.get('PORT', '3000')}")
     print(f"🔧 Directorio actual: {os.getcwd()}")
     
-    # Cambiar al directorio src
-    os.chdir("src")
-    print(f"🔧 Cambiando a directorio: {os.getcwd()}")
-    
-    # Ejecutar gunicorn desde src
+    # Ejecutar gunicorn directamente desde src
     try:
         print("🚀 Ejecutando gunicorn desde src...")
         subprocess.run([
