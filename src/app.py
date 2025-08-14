@@ -1406,36 +1406,114 @@ MAIN_PAGE_HTML = """
                         </form>
                     </div>
                     
-                    {% if tarjetas %}
-                    <div class="dashboard-widgets">
-                        {% for tar in tarjetas %}
-                        <div class="widget">
-                            <h4 style="color: {{ tar.color }};">{{ tar.icono }} {{ tar.nombre }}</h4>
-                            <div class="widget-item">
-                                <span class="label">Tipo</span>
-                                <span class="value">{{ tar.tipo.title() }}</span>
+                    <!-- Formulario para editar tarjeta -->
+                    <div id="editTarjetaForm" class="section-card" style="display: none; margin-top: 20px;">
+                        <h4><i class="fas fa-edit"></i> Editar Tarjeta</h4>
+                        <form method="POST" action="/edit_tarjeta/0" id="editTarjetaFormElement">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="edit_tarjeta_nombre">Nombre *</label>
+                                    <input type="text" id="edit_tarjeta_nombre" name="nombre" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="edit_tarjeta_tipo">Tipo *</label>
+                                    <select id="edit_tarjeta_tipo" name="tipo" required>
+                                        <option value="efectivo">Efectivo</option>
+                                        <option value="debito">Débito</option>
+                                        <option value="credito">Crédito</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="edit_tarjeta_banco">Banco</label>
+                                    <input type="text" id="edit_tarjeta_banco" name="banco" placeholder="Nombre del banco">
+                                </div>
                             </div>
-                            <div class="widget-item">
-                                <span class="label">Banco</span>
-                                <span class="value">{{ tar.banco or 'N/A' }}</span>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="edit_tarjeta_limite">Límite de Crédito</label>
+                                    <input type="number" id="edit_tarjeta_limite" name="limite_credito" step="0.01" min="0" placeholder="Solo para tarjetas de crédito">
+                                </div>
+                                <div class="form-group">
+                                    <label for="edit_tarjeta_vencimiento">Fecha de Vencimiento</label>
+                                    <input type="date" id="edit_tarjeta_vencimiento" name="fecha_vencimiento">
+                                </div>
+                                <div class="form-group">
+                                    <label for="edit_tarjeta_color">Color</label>
+                                    <input type="color" id="edit_tarjeta_color" name="color" value="#667eea">
+                                </div>
                             </div>
-                            {% if tar.tipo == 'credito' %}
-                            <div class="widget-item">
-                                <span class="label">Límite</span>
-                                <span class="value">${{ "%.2f"|format(tar.limite_credito) }}</span>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="edit_tarjeta_icono">Icono</label>
+                                    <select id="edit_tarjeta_icono" name="icono">
+                                        <option value="💳">💳 Tarjeta</option>
+                                        <option value="💵">💵 Efectivo</option>
+                                        <option value="🏦">🏦 Banco</option>
+                                        <option value="💎">💎 Premium</option>
+                                    </select>
+                                </div>
                             </div>
-                            <div class="widget-item">
-                                <span class="label">Vencimiento</span>
-                                <span class="value">{{ tar.fecha_vencimiento or 'N/A' }}</span>
+                            <div class="form-row">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-save"></i> Actualizar Tarjeta
+                                </button>
+                                <button type="button" class="btn btn-warning" onclick="hideEditTarjetaForm()">
+                                    <i class="fas fa-times"></i> Cancelar
+                                </button>
                             </div>
-                            {% endif %}
-                            <div class="widget-item">
-                                <span class="label">Estado</span>
-                                <span class="value">{{ 'Activa' if tar.activa else 'Inactiva' }}</span>
-                            </div>
-                        </div>
-                        {% endfor %}
+                        </form>
                     </div>
+                    
+                    {% if tarjetas %}
+                    <table class="transactions-table">
+                        <thead>
+                            <tr>
+                                <th>Nombre</th>
+                                <th>Tipo</th>
+                                <th>Banco</th>
+                                <th>Límite de Crédito</th>
+                                <th>Vencimiento</th>
+                                <th>Estado</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for tar in tarjetas %}
+                            <tr>
+                                <td>
+                                    <span style="color: {{ tar.color }}; font-weight: bold;">{{ tar.icono }} {{ tar.nombre }}</span>
+                                </td>
+                                <td>
+                                    <span class="transaction-type" style="background: {{ '#9C27B0' if tar.tipo == 'credito' else '#2196F3' if tar.tipo == 'debito' else '#4CAF50' }};">
+                                        {{ tar.tipo.title() }}
+                                    </span>
+                                </td>
+                                <td>{{ tar.banco or 'N/A' }}</td>
+                                <td>
+                                    {% if tar.tipo == 'credito' %}
+                                        ${{ "%.2f"|format(tar.limite_credito) }}
+                                    {% else %}
+                                        N/A
+                                    {% endif %}
+                                </td>
+                                <td>{{ tar.fecha_vencimiento or 'N/A' }}</td>
+                                <td>
+                                    <span class="transaction-type" style="background: {{ '#4CAF50' if tar.activa else '#FF5722' }};">
+                                        {{ 'Activa' if tar.activa else 'Inactiva' }}
+                                    </span>
+                                </td>
+                                <td>
+                                    <button class="btn btn-primary" style="padding: 6px 12px; font-size: 12px;" onclick="showEditTarjetaForm({{ tar.id }}, '{{ tar.nombre }}', '{{ tar.tipo }}', '{{ tar.banco or '' }}', {{ tar.limite_credito or 0 }}, '{{ tar.fecha_vencimiento or '' }}', '{{ tar.color }}', '{{ tar.icono }}')">
+                                        <i class="fas fa-edit"></i>
+                                    </button>
+                                    <a href="/delete_tarjeta/{{ tar.id }}" class="btn btn-danger" style="padding: 6px 12px; font-size: 12px;" onclick="return confirm('¿Estás seguro de eliminar esta tarjeta?')">
+                                        <i class="fas fa-trash"></i>
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
                     {% else %}
                     <div class="empty-state">
                         <i class="fas fa-credit-card"></i>
@@ -1940,14 +2018,38 @@ MAIN_PAGE_HTML = """
             window.location.href = '/?edit_membresia_id=' + id;
         }
         
-        // Tarjetas
-        function showAddTarjetaForm() {
-            document.getElementById('addTarjetaForm').style.display = 'block';
-        }
-        
-        function hideAddTarjetaForm() {
-            document.getElementById('addTarjetaForm').style.display = 'none';
-        }
+                 // Tarjetas
+         function showAddTarjetaForm() {
+             document.getElementById('addTarjetaForm').style.display = 'block';
+         }
+         
+         function hideAddTarjetaForm() {
+             document.getElementById('addTarjetaForm').style.display = 'none';
+         }
+         
+         function showEditTarjetaForm(id, nombre, tipo, banco, limite_credito, fecha_vencimiento, color, icono) {
+             // Actualizar la acción del formulario con el ID correcto
+             document.getElementById('editTarjetaFormElement').action = '/edit_tarjeta/' + id;
+             
+             // Llenar los campos con los datos actuales
+             document.getElementById('edit_tarjeta_nombre').value = nombre;
+             document.getElementById('edit_tarjeta_tipo').value = tipo;
+             document.getElementById('edit_tarjeta_banco').value = banco;
+             document.getElementById('edit_tarjeta_limite').value = limite_credito;
+             document.getElementById('edit_tarjeta_vencimiento').value = fecha_vencimiento;
+             document.getElementById('edit_tarjeta_color').value = color;
+             document.getElementById('edit_tarjeta_icono').value = icono;
+             
+             // Mostrar el formulario
+             document.getElementById('editTarjetaForm').style.display = 'block';
+             
+             // Ocultar el formulario de agregar si está visible
+             document.getElementById('addTarjetaForm').style.display = 'none';
+         }
+         
+         function hideEditTarjetaForm() {
+             document.getElementById('editTarjetaForm').style.display = 'none';
+         }
         
         // Presupuestos
         function showAddPresupuestoForm() {
