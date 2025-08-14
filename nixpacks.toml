@@ -1,15 +1,16 @@
 [phases.setup]
-nixPkgs = ["nodejs_20", "python311"]
+nixPkgs = ["nodejs", "python311"]
 
 [phases.install]
 cmds = [
-    "chmod +x railway_build_test.sh",
-    "./railway_build_test.sh"
+  "pip install flask",
+  "npm install"
+]
+
+[phases.build]
+cmds = [
+  "npm run build"
 ]
 
 [start]
 cmd = "python test_app.py"
-
-[variables]
-NODE_ENV = "production"
-PYTHONUNBUFFERED = "1"
