@@ -1209,9 +1209,77 @@ MAIN_PAGE_HTML = """
                 <div class="section-card">
                     <h3><i class="fas fa-ticket-alt"></i> Membresías y Suscripciones</h3>
                     <div class="export-buttons">
-                        <button class="btn btn-primary">
+                        <button class="btn btn-primary" onclick="showAddMembresiaForm()">
                             <i class="fas fa-plus"></i> Nueva Membresía
                         </button>
+                    </div>
+                    
+                    <!-- Formulario para agregar membresía -->
+                    <div id="addMembresiaForm" class="section-card" style="display: none; margin-top: 20px;">
+                        <h4><i class="fas fa-plus"></i> Agregar Nueva Membresía</h4>
+                        <form method="POST" action="/add_membresia">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="membresia_nombre">Nombre *</label>
+                                    <input type="text" id="membresia_nombre" name="nombre" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="membresia_plataforma">Plataforma *</label>
+                                    <input type="text" id="membresia_plataforma" name="plataforma" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="membresia_tipo">Tipo *</label>
+                                    <select id="membresia_tipo" name="tipo" required>
+                                        <option value="streaming">Streaming</option>
+                                        <option value="musica">Música</option>
+                                        <option value="fitness">Fitness</option>
+                                        <option value="software">Software</option>
+                                        <option value="otro">Otro</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="membresia_monto_mensual">Monto Mensual *</label>
+                                    <input type="number" id="membresia_monto_mensual" name="monto_mensual" step="0.01" min="0" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="membresia_monto_anual">Monto Anual</label>
+                                    <input type="number" id="membresia_monto_anual" name="monto_anual" step="0.01" min="0">
+                                </div>
+                                <div class="form-group">
+                                    <label for="membresia_tarjeta">Tarjeta</label>
+                                    <select id="membresia_tarjeta" name="tarjeta_id">
+                                        <option value="">Seleccionar tarjeta</option>
+                                        {% for tar in tarjetas %}
+                                            <option value="{{ tar.id }}">{{ tar.icono }} {{ tar.nombre }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="membresia_fecha_inicio">Fecha de Inicio *</label>
+                                    <input type="date" id="membresia_fecha_inicio" name="fecha_inicio" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="membresia_fecha_renovacion">Próxima Renovación</label>
+                                    <input type="date" id="membresia_fecha_renovacion" name="fecha_renovacion">
+                                </div>
+                                <div class="form-group">
+                                    <label for="membresia_notas">Notas</label>
+                                    <textarea id="membresia_notas" name="notas" rows="1"></textarea>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-save"></i> Guardar Membresía
+                                </button>
+                                <button type="button" class="btn btn-warning" onclick="hideAddMembresiaForm()">
+                                    <i class="fas fa-times"></i> Cancelar
+                                </button>
+                            </div>
+                        </form>
                     </div>
                     
                     {% if membresias %}
@@ -1249,12 +1317,12 @@ MAIN_PAGE_HTML = """
                                     </span>
                                 </td>
                                 <td>
-                                    <button class="btn btn-primary" style="padding: 6px 12px; font-size: 12px;">
+                                    <button class="btn btn-primary" style="padding: 6px 12px; font-size: 12px;" onclick="showEditMembresiaForm({{ m.id }}, '{{ m.nombre }}', '{{ m.plataforma }}', '{{ m.tipo }}', {{ m.monto_mensual }}, {{ m.monto_anual or 0 }}, {{ m.tarjeta_id or 'null' }}, '{{ m.fecha_inicio }}', '{{ m.fecha_renovacion or '' }}', '{{ m.notas or '' }}')">
                                         <i class="fas fa-edit"></i>
                                     </button>
-                                    <button class="btn btn-danger" style="padding: 6px 12px; font-size: 12px;">
+                                    <a href="/delete_membresia/{{ m.id }}" class="btn btn-danger" style="padding: 6px 12px; font-size: 12px;" onclick="return confirm('¿Estás seguro de eliminar esta membresía?')">
                                         <i class="fas fa-trash"></i>
-                                    </button>
+                                    </a>
                                 </td>
                             </tr>
                             {% endfor %}
@@ -1275,9 +1343,67 @@ MAIN_PAGE_HTML = """
                 <div class="section-card">
                     <h3><i class="fas fa-credit-card"></i> Tarjetas de Crédito y Débito</h3>
                     <div class="export-buttons">
-                        <button class="btn btn-primary">
+                        <button class="btn btn-primary" onclick="showAddTarjetaForm()">
                             <i class="fas fa-plus"></i> Nueva Tarjeta
                         </button>
+                    </div>
+                    
+                    <!-- Formulario para agregar tarjeta -->
+                    <div id="addTarjetaForm" class="section-card" style="display: none; margin-top: 20px;">
+                        <h4><i class="fas fa-plus"></i> Agregar Nueva Tarjeta</h4>
+                        <form method="POST" action="/add_tarjeta">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="tarjeta_nombre">Nombre *</label>
+                                    <input type="text" id="tarjeta_nombre" name="nombre" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="tarjeta_tipo">Tipo *</label>
+                                    <select id="tarjeta_tipo" name="tipo" required>
+                                        <option value="efectivo">Efectivo</option>
+                                        <option value="debito">Débito</option>
+                                        <option value="credito">Crédito</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="tarjeta_banco">Banco</label>
+                                    <input type="text" id="tarjeta_banco" name="banco" placeholder="Nombre del banco">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="tarjeta_limite">Límite de Crédito</label>
+                                    <input type="number" id="tarjeta_limite" name="limite_credito" step="0.01" min="0" placeholder="Solo para tarjetas de crédito">
+                                </div>
+                                <div class="form-group">
+                                    <label for="tarjeta_vencimiento">Fecha de Vencimiento</label>
+                                    <input type="date" id="tarjeta_vencimiento" name="fecha_vencimiento">
+                                </div>
+                                <div class="form-group">
+                                    <label for="tarjeta_color">Color</label>
+                                    <input type="color" id="tarjeta_color" name="color" value="#667eea">
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="tarjeta_icono">Icono</label>
+                                    <select id="tarjeta_icono" name="icono">
+                                        <option value="💳">💳 Tarjeta</option>
+                                        <option value="💵">💵 Efectivo</option>
+                                        <option value="🏦">🏦 Banco</option>
+                                        <option value="💎">💎 Premium</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-save"></i> Guardar Tarjeta
+                                </button>
+                                <button type="button" class="btn btn-warning" onclick="hideAddTarjetaForm()">
+                                    <i class="fas fa-times"></i> Cancelar
+                                </button>
+                            </div>
+                        </form>
                     </div>
                     
                     {% if tarjetas %}
@@ -1325,9 +1451,64 @@ MAIN_PAGE_HTML = """
                 <div class="section-card">
                     <h3><i class="fas fa-chart-pie"></i> Presupuestos Mensuales</h3>
                     <div class="export-buttons">
-                        <button class="btn btn-primary">
+                        <button class="btn btn-primary" onclick="showAddPresupuestoForm()">
                             <i class="fas fa-plus"></i> Nuevo Presupuesto
                         </button>
+                    </div>
+                    
+                    <!-- Formulario para agregar presupuesto -->
+                    <div id="addPresupuestoForm" class="section-card" style="display: none; margin-top: 20px;">
+                        <h4><i class="fas fa-plus"></i> Crear Nuevo Presupuesto</h4>
+                        <form method="POST" action="/add_presupuesto">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="presupuesto_mes">Mes *</label>
+                                    <select id="presupuesto_mes" name="mes" required>
+                                        <option value="Enero">Enero</option>
+                                        <option value="Febrero">Febrero</option>
+                                        <option value="Marzo">Marzo</option>
+                                        <option value="Abril">Abril</option>
+                                        <option value="Mayo">Mayo</option>
+                                        <option value="Junio">Junio</option>
+                                        <option value="Julio">Julio</option>
+                                        <option value="Agosto">Agosto</option>
+                                        <option value="Septiembre">Septiembre</option>
+                                        <option value="Octubre">Octubre</option>
+                                        <option value="Noviembre">Noviembre</option>
+                                        <option value="Diciembre">Diciembre</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="presupuesto_año">Año *</label>
+                                    <input type="number" id="presupuesto_año" name="año" min="2024" max="2030" value="2024" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="presupuesto_categoria">Categoría *</label>
+                                    <select id="presupuesto_categoria" name="categoria_id" required>
+                                        <option value="">Seleccionar categoría</option>
+                                        {% for cat in categorias %}
+                                            {% if cat.tipo == 'gasto' %}
+                                                <option value="{{ cat.id }}">{{ cat.icono }} {{ cat.nombre }}</option>
+                                            {% endif %}
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="presupuesto_monto">Monto Planificado *</label>
+                                    <input type="number" id="presupuesto_monto" name="monto_planificado" step="0.01" min="0" required>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-save"></i> Crear Presupuesto
+                                </button>
+                                <button type="button" class="btn btn-warning" onclick="hideAddPresupuestoForm()">
+                                    <i class="fas fa-times"></i> Cancelar
+                                </button>
+                            </div>
+                        </form>
                     </div>
                     
                     {% if presupuestos %}
@@ -1530,9 +1711,72 @@ MAIN_PAGE_HTML = """
                 <div class="section-card">
                     <h3><i class="fas fa-bell"></i> Recordatorios de Pagos</h3>
                     <div class="export-buttons">
-                        <button class="btn btn-primary">
+                        <button class="btn btn-primary" onclick="showAddRecordatorioForm()">
                             <i class="fas fa-plus"></i> Nuevo Recordatorio
                         </button>
+                    </div>
+                    
+                    <!-- Formulario para agregar recordatorio -->
+                    <div id="addRecordatorioForm" class="section-card" style="display: none; margin-top: 20px;">
+                        <h4><i class="fas fa-plus"></i> Crear Nuevo Recordatorio</h4>
+                        <form method="POST" action="/add_recordatorio">
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="recordatorio_titulo">Título *</label>
+                                    <input type="text" id="recordatorio_titulo" name="titulo" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="recordatorio_monto">Monto *</label>
+                                    <input type="number" id="recordatorio_monto" name="monto" step="0.01" min="0" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="recordatorio_prioridad">Prioridad</label>
+                                    <select id="recordatorio_prioridad" name="prioridad">
+                                        <option value="baja">Baja</option>
+                                        <option value="normal" selected>Normal</option>
+                                        <option value="alta">Alta</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="recordatorio_fecha">Fecha de Vencimiento *</label>
+                                    <input type="date" id="recordatorio_fecha" name="fecha_vencimiento" required>
+                                </div>
+                                <div class="form-group">
+                                    <label for="recordatorio_tarjeta">Tarjeta</label>
+                                    <select id="recordatorio_tarjeta" name="tarjeta_id">
+                                        <option value="">Seleccionar tarjeta</option>
+                                        {% for tar in tarjetas %}
+                                            <option value="{{ tar.id }}">{{ tar.icono }} {{ tar.nombre }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label for="recordatorio_categoria">Categoría</label>
+                                    <select id="recordatorio_categoria" name="categoria_id">
+                                        <option value="">Seleccionar categoría</option>
+                                        {% for cat in categorias %}
+                                            <option value="{{ cat.id }}">{{ cat.icono }} {{ cat.nombre }}</option>
+                                        {% endfor %}
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <div class="form-group">
+                                    <label for="recordatorio_descripcion">Descripción</label>
+                                    <textarea id="recordatorio_descripcion" name="descripcion" rows="2" placeholder="Descripción opcional del recordatorio"></textarea>
+                                </div>
+                            </div>
+                            <div class="form-row">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-save"></i> Crear Recordatorio
+                                </button>
+                                <button type="button" class="btn btn-warning" onclick="hideAddRecordatorioForm()">
+                                    <i class="fas fa-times"></i> Cancelar
+                                </button>
+                            </div>
+                        </form>
                     </div>
                     
                     {% if recordatorios %}
@@ -1570,15 +1814,15 @@ MAIN_PAGE_HTML = """
                                     </span>
                                 </td>
                                 <td>
-                                    <button class="btn btn-success" style="padding: 6px 12px; font-size: 12px;">
+                                    <a href="/completar_recordatorio/{{ r.id }}" class="btn btn-success" style="padding: 6px 12px; font-size: 12px;" onclick="return confirm('¿Marcar como completado?')">
                                         <i class="fas fa-check"></i>
-                                    </button>
-                                    <button class="btn btn-primary" style="padding: 6px 12px; font-size: 12px;">
+                                    </a>
+                                    <button class="btn btn-primary" style="padding: 6px 12px; font-size: 12px;" onclick="showEditRecordatorioForm({{ r.id }}, '{{ r.titulo }}', '{{ r.descripcion or '' }}', {{ r.monto }}, '{{ r.fecha_vencimiento }}', {{ r.tarjeta_id or 'null' }}, {{ r.categoria_id or 'null' }}, '{{ r.prioridad }}')">
                                         <i class="fas fa-edit"></i>
                                     </button>
-                                    <button class="btn btn-danger" style="padding: 6px 12px; font-size: 12px;">
+                                    <a href="/delete_recordatorio/{{ r.id }}" class="btn btn-danger" style="padding: 6px 12px; font-size: 12px;" onclick="return confirm('¿Estás seguro de eliminar este recordatorio?')">
                                         <i class="fas fa-trash"></i>
-                                    </button>
+                                    </a>
                                 </td>
                             </tr>
                             {% endfor %}
@@ -1673,6 +1917,77 @@ MAIN_PAGE_HTML = """
                 !sidebar.contains(event.target) && 
                 !mobileToggle.contains(event.target)) {
                 sidebar.classList.remove('open');
+            }
+        });
+        
+        // ===== FUNCIONES PARA FORMULARIOS =====
+        
+        // Membresías
+        function showAddMembresiaForm() {
+            document.getElementById('addMembresiaForm').style.display = 'block';
+            // Establecer fecha actual por defecto
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('membresia_fecha_inicio').value = today;
+        }
+        
+        function hideAddMembresiaForm() {
+            document.getElementById('addMembresiaForm').style.display = 'none';
+        }
+        
+        function showEditMembresiaForm(id, nombre, plataforma, tipo, monto_mensual, monto_anual, tarjeta_id, fecha_inicio, fecha_renovacion, notas) {
+            // Por ahora redirigimos a la página principal con parámetros de edición
+            // En una versión futura podríamos mostrar un modal o formulario de edición
+            window.location.href = '/?edit_membresia_id=' + id;
+        }
+        
+        // Tarjetas
+        function showAddTarjetaForm() {
+            document.getElementById('addTarjetaForm').style.display = 'block';
+        }
+        
+        function hideAddTarjetaForm() {
+            document.getElementById('addTarjetaForm').style.display = 'none';
+        }
+        
+        // Presupuestos
+        function showAddPresupuestoForm() {
+            document.getElementById('addPresupuestoForm').style.display = 'block';
+            // Establecer mes y año actual por defecto
+            const now = new Date();
+            const months = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
+                          'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+            document.getElementById('presupuesto_mes').value = months[now.getMonth()];
+            document.getElementById('presupuesto_año').value = now.getFullYear();
+        }
+        
+        function hideAddPresupuestoForm() {
+            document.getElementById('addPresupuestoForm').style.display = 'none';
+        }
+        
+        // Recordatorios
+        function showAddRecordatorioForm() {
+            document.getElementById('addRecordatorioForm').style.display = 'block';
+            // Establecer fecha actual por defecto
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('recordatorio_fecha').value = today;
+        }
+        
+        function hideAddRecordatorioForm() {
+            document.getElementById('addRecordatorioForm').style.display = 'none';
+        }
+        
+        function showEditRecordatorioForm(id, titulo, descripcion, monto, fecha_vencimiento, tarjeta_id, categoria_id, prioridad) {
+            // Por ahora redirigimos a la página principal con parámetros de edición
+            window.location.href = '/?edit_recordatorio_id=' + id;
+        }
+        
+        // Inicializar fechas por defecto cuando se carga la página
+        document.addEventListener('DOMContentLoaded', function() {
+            // Establecer fecha actual en formularios de transacciones
+            const today = new Date().toISOString().split('T')[0];
+            const fechaInput = document.getElementById('fecha');
+            if (fechaInput) {
+                fechaInput.value = today;
             }
         });
     </script>
@@ -1896,6 +2211,443 @@ def api_status():
         'deployment': 'Railway',
         'health': 'healthy'
     })
+
+# ===== RUTAS PARA MEMBRESÍAS =====
+
+@app.route('/add_membresia', methods=['POST'])
+def add_membresia():
+    """Agregar nueva membresía"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO membresias (nombre, plataforma, tipo, monto_mensual, monto_anual, tarjeta_id, fecha_inicio, fecha_renovacion, notas)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            request.form['nombre'],
+            request.form['plataforma'],
+            request.form['tipo'],
+            float(request.form['monto_mensual']),
+            float(request.form['monto_anual']) if request.form.get('monto_anual') else None,
+            request.form['tarjeta_id'] or None,
+            request.form['fecha_inicio'],
+            request.form['fecha_renovacion'],
+            request.form.get('notas')
+        ))
+        
+        conn.commit()
+        conn.close()
+        
+        return redirect('/?success=membresia_agregada')
+    except Exception as e:
+        return redirect('/?error=' + str(e))
+
+@app.route('/edit_membresia/<int:id>', methods=['GET', 'POST'])
+def edit_membresia(id):
+    """Editar membresía"""
+    if request.method == 'POST':
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                UPDATE membresias 
+                SET nombre=?, plataforma=?, tipo=?, monto_mensual=?, monto_anual=?, 
+                    tarjeta_id=?, fecha_inicio=?, fecha_renovacion=?, notas=?
+                WHERE id=?
+            ''', (
+                request.form['nombre'],
+                request.form['plataforma'],
+                request.form['tipo'],
+                float(request.form['monto_mensual']),
+                float(request.form['monto_anual']) if request.form.get('monto_anual') else None,
+                request.form['tarjeta_id'] or None,
+                request.form['fecha_inicio'],
+                request.form['fecha_renovacion'],
+                request.form.get('notas'),
+                id
+            ))
+            
+            conn.commit()
+            conn.close()
+            
+            return redirect('/?success=membresia_editada')
+        except Exception as e:
+            return redirect('/?error=' + str(e))
+    
+    # GET: Mostrar formulario de edición
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM membresias WHERE id = ?', (id,))
+    membresia = cursor.fetchone()
+    conn.close()
+    
+    if not membresia:
+        return redirect('/?error=Membresía no encontrada')
+    
+    # Por ahora redirigimos a la página principal con un mensaje
+    # En una versión futura podríamos crear un formulario de edición
+    return redirect('/?edit_membresia_id=' + str(id))
+
+@app.route('/delete_membresia/<int:id>')
+def delete_membresia(id):
+    """Eliminar membresía"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM membresias WHERE id = ?', (id,))
+        conn.commit()
+        conn.close()
+        
+        return redirect('/?success=membresia_eliminada')
+    except Exception as e:
+        return redirect('/?error=' + str(e))
+
+# ===== RUTAS PARA TARJETAS =====
+
+@app.route('/add_tarjeta', methods=['POST'])
+def add_tarjeta():
+    """Agregar nueva tarjeta"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO tarjetas (nombre, tipo, banco, limite_credito, fecha_vencimiento, color, icono)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            request.form['nombre'],
+            request.form['tipo'],
+            request.form.get('banco'),
+            float(request.form['limite_credito']) if request.form.get('limite_credito') else 0,
+            request.form.get('fecha_vencimiento'),
+            request.form.get('color', '#667eea'),
+            request.form.get('icono', '💳')
+        ))
+        
+        conn.commit()
+        conn.close()
+        
+        return redirect('/?success=tarjeta_agregada')
+    except Exception as e:
+        return redirect('/?error=' + str(e))
+
+@app.route('/edit_tarjeta/<int:id>', methods=['GET', 'POST'])
+def edit_tarjeta(id):
+    """Editar tarjeta"""
+    if request.method == 'POST':
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                UPDATE tarjetas 
+                SET nombre=?, tipo=?, banco=?, limite_credito=?, fecha_vencimiento=?, color=?, icono=?
+                WHERE id=?
+            ''', (
+                request.form['nombre'],
+                request.form['tipo'],
+                request.form.get('banco'),
+                float(request.form['limite_credito']) if request.form.get('limite_credito') else 0,
+                request.form.get('fecha_vencimiento'),
+                request.form.get('color', '#667eea'),
+                request.form.get('icono', '💳'),
+                id
+            ))
+            
+            conn.commit()
+            conn.close()
+            
+            return redirect('/?success=tarjeta_editada')
+        except Exception as e:
+            return redirect('/?error=' + str(e))
+    
+    # GET: Mostrar formulario de edición
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM tarjetas WHERE id = ?', (id,))
+    tarjeta = cursor.fetchone()
+    conn.close()
+    
+    if not tarjeta:
+        return redirect('/?error=Tarjeta no encontrada')
+    
+    return redirect('/?edit_tarjeta_id=' + str(id))
+
+@app.route('/delete_tarjeta/<int:id>')
+def delete_tarjeta(id):
+    """Eliminar tarjeta"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM tarjetas WHERE id = ?', (id,))
+        conn.commit()
+        conn.close()
+        
+        return redirect('/?success=tarjeta_eliminada')
+    except Exception as e:
+        return redirect('/?error=' + str(e))
+
+# ===== RUTAS PARA PRESUPUESTOS =====
+
+@app.route('/add_presupuesto', methods=['POST'])
+def add_presupuesto():
+    """Agregar nuevo presupuesto"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO presupuestos (mes, año, categoria_id, monto_planificado)
+            VALUES (?, ?, ?, ?)
+        ''', (
+            request.form['mes'],
+            int(request.form['año']),
+            request.form['categoria_id'],
+            float(request.form['monto_planificado'])
+        ))
+        
+        conn.commit()
+        conn.close()
+        
+        return redirect('/?success=presupuesto_agregado')
+    except Exception as e:
+        return redirect('/?error=' + str(e))
+
+@app.route('/edit_presupuesto/<int:id>', methods=['GET', 'POST'])
+def edit_presupuesto(id):
+    """Editar presupuesto"""
+    if request.method == 'POST':
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                UPDATE presupuestos 
+                SET mes=?, año=?, categoria_id=?, monto_planificado=?
+                WHERE id=?
+            ''', (
+                request.form['mes'],
+                int(request.form['año']),
+                request.form['categoria_id'],
+                float(request.form['monto_planificado']),
+                id
+            ))
+            
+            conn.commit()
+            conn.close()
+            
+            return redirect('/?success=presupuesto_editado')
+        except Exception as e:
+            return redirect('/?error=' + str(e))
+    
+    # GET: Mostrar formulario de edición
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM presupuestos WHERE id = ?', (id,))
+    presupuesto = cursor.fetchone()
+    conn.close()
+    
+    if not presupuesto:
+        return redirect('/?error=Presupuesto no encontrado')
+    
+    return redirect('/?edit_presupuesto_id=' + str(id))
+
+@app.route('/delete_presupuesto/<int:id>')
+def delete_presupuesto(id):
+    """Eliminar presupuesto"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM presupuestos WHERE id = ?', (id,))
+        conn.commit()
+        conn.close()
+        
+        return redirect('/?success=presupuesto_eliminado')
+    except Exception as e:
+        return redirect('/?error=' + str(e))
+
+# ===== RUTAS PARA RECORDATORIOS =====
+
+@app.route('/add_recordatorio', methods=['POST'])
+def add_recordatorio():
+    """Agregar nuevo recordatorio"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO recordatorios (titulo, descripcion, monto, fecha_vencimiento, tarjeta_id, categoria_id, prioridad)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        ''', (
+            request.form['titulo'],
+            request.form.get('descripcion'),
+            float(request.form['monto']),
+            request.form['fecha_vencimiento'],
+            request.form['tarjeta_id'] or None,
+            request.form['categoria_id'] or None,
+            request.form.get('prioridad', 'normal')
+        ))
+        
+        conn.commit()
+        conn.close()
+        
+        return redirect('/?success=recordatorio_agregado')
+    except Exception as e:
+        return redirect('/?error=' + str(e))
+
+@app.route('/edit_recordatorio/<int:id>', methods=['GET', 'POST'])
+def edit_recordatorio(id):
+    """Editar recordatorio"""
+    if request.method == 'POST':
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                UPDATE recordatorios 
+                SET titulo=?, descripcion=?, monto=?, fecha_vencimiento=?, 
+                    tarjeta_id=?, categoria_id=?, prioridad=?
+                WHERE id=?
+            ''', (
+                request.form['titulo'],
+                request.form.get('descripcion'),
+                float(request.form['monto']),
+                request.form['fecha_vencimiento'],
+                request.form['tarjeta_id'] or None,
+                request.form['categoria_id'] or None,
+                request.form.get('prioridad', 'normal'),
+                id
+            ))
+            
+            conn.commit()
+            conn.close()
+            
+            return redirect('/?success=recordatorio_editado')
+        except Exception as e:
+            return redirect('/?error=' + str(e))
+    
+    # GET: Mostrar formulario de edición
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM recordatorios WHERE id = ?', (id,))
+    recordatorio = cursor.fetchone()
+    conn.close()
+    
+    if not recordatorio:
+        return redirect('/?error=Recordatorio no encontrado')
+    
+    return redirect('/?edit_recordatorio_id=' + str(id))
+
+@app.route('/delete_recordatorio/<int:id>')
+def delete_recordatorio(id):
+    """Eliminar recordatorio"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM recordatorios WHERE id = ?', (id,))
+        conn.commit()
+        conn.close()
+        
+        return redirect('/?success=recordatorio_eliminado')
+    except Exception as e:
+        return redirect('/?error=' + str(e))
+
+@app.route('/completar_recordatorio/<int:id>')
+def completar_recordatorio(id):
+    """Marcar recordatorio como completado"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('UPDATE recordatorios SET estado = "completado" WHERE id = ?', (id,))
+        conn.commit()
+        conn.close()
+        
+        return redirect('/?success=recordatorio_completado')
+    except Exception as e:
+        return redirect('/?error=' + str(e))
+
+# ===== RUTAS PARA CATEGORÍAS =====
+
+@app.route('/add_categoria', methods=['POST'])
+def add_categoria():
+    """Agregar nueva categoría"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute('''
+            INSERT INTO categorias (nombre, tipo, color, icono, presupuesto_mensual)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (
+            request.form['nombre'],
+            request.form['tipo'],
+            request.form.get('color', '#667eea'),
+            request.form.get('icono', '💰'),
+            float(request.form.get('presupuesto_mensual', 0))
+        ))
+        
+        conn.commit()
+        conn.close()
+        
+        return redirect('/?success=categoria_agregada')
+    except Exception as e:
+        return redirect('/?error=' + str(e))
+
+@app.route('/edit_categoria/<int:id>', methods=['GET', 'POST'])
+def edit_categoria(id):
+    """Editar categoría"""
+    if request.method == 'POST':
+        try:
+            conn = get_db_connection()
+            cursor = conn.cursor()
+            
+            cursor.execute('''
+                UPDATE categorias 
+                SET nombre=?, tipo=?, color=?, icono=?, presupuesto_mensual=?
+                WHERE id=?
+            ''', (
+                request.form['nombre'],
+                request.form['tipo'],
+                request.form.get('color', '#667eea'),
+                request.form.get('icono', '💰'),
+                float(request.form.get('presupuesto_mensual', 0)),
+                id
+            ))
+            
+            conn.commit()
+            conn.close()
+            
+            return redirect('/?success=categoria_editada')
+        except Exception as e:
+            return redirect('/?error=' + str(e))
+    
+    # GET: Mostrar formulario de edición
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute('SELECT * FROM categorias WHERE id = ?', (id,))
+    categoria = cursor.fetchone()
+    conn.close()
+    
+    if not categoria:
+        return redirect('/?error=Categoría no encontrada')
+    
+    return redirect('/?edit_categoria_id=' + str(id))
+
+@app.route('/delete_categoria/<int:id>')
+def delete_categoria(id):
+    """Eliminar categoría"""
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute('DELETE FROM categorias WHERE id = ?', (id,))
+        conn.commit()
+        conn.close()
+        
+        return redirect('/?success=categoria_eliminada')
+    except Exception as e:
+        return redirect('/?error=' + str(e))
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 3000))
