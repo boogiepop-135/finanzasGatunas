@@ -2083,15 +2083,31 @@ MAIN_PAGE_HTML = """
             window.location.href = '/?edit_recordatorio_id=' + id;
         }
         
-        // Inicializar fechas por defecto cuando se carga la página
-        document.addEventListener('DOMContentLoaded', function() {
-            // Establecer fecha actual en formularios de transacciones
-            const today = new Date().toISOString().split('T')[0];
-            const fechaInput = document.getElementById('fecha');
-            if (fechaInput) {
-                fechaInput.value = today;
-            }
-        });
+                 // Inicializar fechas por defecto cuando se carga la página
+         document.addEventListener('DOMContentLoaded', function() {
+             // Establecer fecha actual en formularios de transacciones
+             const today = new Date().toISOString().split('T')[0];
+             const fechaInput = document.getElementById('fecha');
+             if (fechaInput) {
+                 fechaInput.value = today;
+             }
+             
+             // Verificar si hay un parámetro de sección en la URL
+             const urlParams = new URLSearchParams(window.location.search);
+             const section = urlParams.get('section');
+             if (section) {
+                 // Mostrar la sección especificada
+                 showSection(section);
+                 
+                 // Marcar el enlace activo
+                 document.querySelectorAll('.nav-link').forEach(link => {
+                     link.classList.remove('active');
+                     if (link.getAttribute('href') === '#' + section) {
+                         link.classList.add('active');
+                     }
+                 });
+             }
+         });
     </script>
 </body>
 </html>
@@ -2179,9 +2195,9 @@ def add_transaction():
         conn.commit()
         conn.close()
         
-        return redirect('/?success=1')
+        return redirect('/?success=1&section=transactions')
     except Exception as e:
-        return redirect('/?error=' + str(e))
+        return redirect('/?error=' + str(e) + '&section=transactions')
 
 @app.route('/edit_transaction/<int:id>')
 def edit_transaction(id):
@@ -2209,9 +2225,9 @@ def delete_transaction(id):
         conn.commit()
         conn.close()
         
-        return redirect('/?deleted=1')
+        return redirect('/?deleted=1&section=list')
     except Exception as e:
-        return redirect('/?error=' + str(e))
+        return redirect('/?error=' + str(e) + '&section=list')
 
 @app.route('/export_csv')
 def export_csv():
@@ -2341,9 +2357,9 @@ def add_membresia():
         conn.commit()
         conn.close()
         
-        return redirect('/?success=membresia_agregada')
+        return redirect('/?success=membresia_agregada&section=membresias')
     except Exception as e:
-        return redirect('/?error=' + str(e))
+        return redirect('/?error=' + str(e) + '&section=membresias')
 
 @app.route('/edit_membresia/<int:id>', methods=['GET', 'POST'])
 def edit_membresia(id):
@@ -2374,9 +2390,9 @@ def edit_membresia(id):
             conn.commit()
             conn.close()
             
-            return redirect('/?success=membresia_editada')
+            return redirect('/?success=membresia_editada&section=membresias')
         except Exception as e:
-            return redirect('/?error=' + str(e))
+            return redirect('/?error=' + str(e) + '&section=membresias')
     
     # GET: Mostrar formulario de edición
     conn = get_db_connection()
@@ -2402,9 +2418,9 @@ def delete_membresia(id):
         conn.commit()
         conn.close()
         
-        return redirect('/?success=membresia_eliminada')
+        return redirect('/?success=membresia_eliminada&section=membresias')
     except Exception as e:
-        return redirect('/?error=' + str(e))
+        return redirect('/?error=' + str(e) + '&section=membresias')
 
 # ===== RUTAS PARA TARJETAS =====
 
@@ -2431,9 +2447,9 @@ def add_tarjeta():
         conn.commit()
         conn.close()
         
-        return redirect('/?success=tarjeta_agregada')
+        return redirect('/?success=tarjeta_agregada&section=tarjetas')
     except Exception as e:
-        return redirect('/?error=' + str(e))
+        return redirect('/?error=' + str(e) + '&section=tarjetas')
 
 @app.route('/edit_tarjeta/<int:id>', methods=['GET', 'POST'])
 def edit_tarjeta(id):
@@ -2461,9 +2477,9 @@ def edit_tarjeta(id):
             conn.commit()
             conn.close()
             
-            return redirect('/?success=tarjeta_editada')
+            return redirect('/?success=tarjeta_editada&section=tarjetas')
         except Exception as e:
-            return redirect('/?error=' + str(e))
+            return redirect('/?error=' + str(e) + '&section=tarjetas')
     
     # GET: Mostrar formulario de edición
     conn = get_db_connection()
@@ -2487,9 +2503,9 @@ def delete_tarjeta(id):
         conn.commit()
         conn.close()
         
-        return redirect('/?success=tarjeta_eliminada')
+        return redirect('/?success=tarjeta_eliminada&section=tarjetas')
     except Exception as e:
-        return redirect('/?error=' + str(e))
+        return redirect('/?error=' + str(e) + '&section=tarjetas')
 
 # ===== RUTAS PARA PRESUPUESTOS =====
 
@@ -2513,9 +2529,9 @@ def add_presupuesto():
         conn.commit()
         conn.close()
         
-        return redirect('/?success=presupuesto_agregado')
+        return redirect('/?success=presupuesto_agregado&section=presupuestos')
     except Exception as e:
-        return redirect('/?error=' + str(e))
+        return redirect('/?error=' + str(e) + '&section=presupuestos')
 
 @app.route('/edit_presupuesto/<int:id>', methods=['GET', 'POST'])
 def edit_presupuesto(id):
@@ -2540,9 +2556,9 @@ def edit_presupuesto(id):
             conn.commit()
             conn.close()
             
-            return redirect('/?success=presupuesto_editado')
+            return redirect('/?success=presupuesto_editado&section=presupuestos')
         except Exception as e:
-            return redirect('/?error=' + str(e))
+            return redirect('/?error=' + str(e) + '&section=presupuestos')
     
     # GET: Mostrar formulario de edición
     conn = get_db_connection()
@@ -2566,9 +2582,9 @@ def delete_presupuesto(id):
         conn.commit()
         conn.close()
         
-        return redirect('/?success=presupuesto_eliminado')
+        return redirect('/?success=presupuesto_eliminado&section=presupuestos')
     except Exception as e:
-        return redirect('/?error=' + str(e))
+        return redirect('/?error=' + str(e) + '&section=presupuestos')
 
 # ===== RUTAS PARA RECORDATORIOS =====
 
@@ -2595,9 +2611,9 @@ def add_recordatorio():
         conn.commit()
         conn.close()
         
-        return redirect('/?success=recordatorio_agregado')
+        return redirect('/?success=recordatorio_agregado&section=recordatorios')
     except Exception as e:
-        return redirect('/?error=' + str(e))
+        return redirect('/?error=' + str(e) + '&section=recordatorios')
 
 @app.route('/edit_recordatorio/<int:id>', methods=['GET', 'POST'])
 def edit_recordatorio(id):
@@ -2626,9 +2642,9 @@ def edit_recordatorio(id):
             conn.commit()
             conn.close()
             
-            return redirect('/?success=recordatorio_editado')
+            return redirect('/?success=recordatorio_editado&section=recordatorios')
         except Exception as e:
-            return redirect('/?error=' + str(e))
+            return redirect('/?error=' + str(e) + '&section=recordatorios')
     
     # GET: Mostrar formulario de edición
     conn = get_db_connection()
@@ -2652,9 +2668,9 @@ def delete_recordatorio(id):
         conn.commit()
         conn.close()
         
-        return redirect('/?success=recordatorio_eliminado')
+        return redirect('/?success=recordatorio_eliminado&section=recordatorios')
     except Exception as e:
-        return redirect('/?error=' + str(e))
+        return redirect('/?error=' + str(e) + '&section=recordatorios')
 
 @app.route('/completar_recordatorio/<int:id>')
 def completar_recordatorio(id):
@@ -2666,9 +2682,9 @@ def completar_recordatorio(id):
         conn.commit()
         conn.close()
         
-        return redirect('/?success=recordatorio_completado')
+        return redirect('/?success=recordatorio_completado&section=recordatorios')
     except Exception as e:
-        return redirect('/?error=' + str(e))
+        return redirect('/?error=' + str(e) + '&section=recordatorios')
 
 # ===== RUTAS PARA CATEGORÍAS =====
 
@@ -2693,9 +2709,9 @@ def add_categoria():
         conn.commit()
         conn.close()
         
-        return redirect('/?success=categoria_agregada')
+        return redirect('/?success=categoria_agregada&section=transactions')
     except Exception as e:
-        return redirect('/?error=' + str(e))
+        return redirect('/?error=' + str(e) + '&section=transactions')
 
 @app.route('/edit_categoria/<int:id>', methods=['GET', 'POST'])
 def edit_categoria(id):
@@ -2721,9 +2737,9 @@ def edit_categoria(id):
             conn.commit()
             conn.close()
             
-            return redirect('/?success=categoria_editada')
+            return redirect('/?success=categoria_editada&section=transactions')
         except Exception as e:
-            return redirect('/?error=' + str(e))
+            return redirect('/?error=' + str(e) + '&section=transactions')
     
     # GET: Mostrar formulario de edición
     conn = get_db_connection()
@@ -2747,9 +2763,9 @@ def delete_categoria(id):
         conn.commit()
         conn.close()
         
-        return redirect('/?success=categoria_eliminada')
+        return redirect('/?success=categoria_eliminada&section=transactions')
     except Exception as e:
-        return redirect('/?error=' + str(e))
+        return redirect('/?error=' + str(e) + '&section=transactions')
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 3000))
