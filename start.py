@@ -10,20 +10,15 @@ def main():
     print("🚀 Iniciando aplicación en Railway...")
     print(f"📅 Puerto: {os.environ.get('PORT', '3000')}")
     print(f"🔧 Directorio actual: {os.getcwd()}")
-    print(f"📁 Archivos disponibles:")
-    
-    try:
-        subprocess.run(["ls", "-la"], check=True)
-    except:
-        print("No se pudo listar archivos")
-    
-    print("🚀 Ejecutando gunicorn...")
     
     # Ejecutar gunicorn directamente
     try:
+        print("🚀 Ejecutando gunicorn...")
         subprocess.run([
             sys.executable, "-m", "gunicorn", 
-            "-c", "gunicorn.conf.py", 
+            "--bind", f"0.0.0.0:{os.environ.get('PORT', '3000')}",
+            "--workers", "1",
+            "--timeout", "30",
             "wsgi:app"
         ], check=True)
     except subprocess.CalledProcessError as e:
