@@ -9,6 +9,8 @@ cmds = [
 
 [phases.build]
 cmds = [
+  "cp env.production .env",
+  "export NODE_ENV=production",
   "npm run build"
 ]
 
