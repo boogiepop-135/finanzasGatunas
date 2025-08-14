@@ -1,0 +1,91 @@
+# Ignorar completamente Node.js
+package.json
+package-lock.json
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Ignorar archivos de build de Node.js
+dist/
+build/
+*.js
+*.jsx
+*.ts
+*.tsx
+vite.config.js
+
+# Ignorar archivos de desarrollo
+.env.local
+.env.development
+*.log
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+env/
+venv/
+.venv/
+
+# Archivos del sistema
+.DS_Store
+Thumbs.db
+
+# Archivos de IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Archivos de Railway específicos
+railway_*.sh
+railway_*.py
+railway_*.json
+railway_*.toml
+railway_*.md
+railway_*.env*
+railway_config.py
+
+# Archivos de Docker
+Dockerfile*
+.dockerignore
+
+# Archivos de migración y base de datos
+migrations/
+*.db
+*.sqlite
+
+# Archivos de documentación
+docs/
+README*.md
+*.md
+
+# Archivos de configuración de desarrollo
+pycodestyle.cfg
+.eslintrc*
+.prettierrc*
+
+# Archivos de la aplicación principal (usar solo test_app.py)
+src/
+wsgi.py
+
+# Archivos de otros servicios
+render.yaml
+render_build.sh
+start_*.py
+start_gunicorn.py
+post-install.sh
+setup.sh
+database.sh
+
+# Archivos de Git
+.git/
+.github/
+.gitpod.*
+
+# Archivos de desarrollo local
+.devcontainer/
+Pipfile*
+Pipfile.lock

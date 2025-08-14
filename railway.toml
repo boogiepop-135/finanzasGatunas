@@ -1,7 +1,0 @@
-[build]
-builder = "nixpacks"
-
-[deploy]
-startCommand = "python test_app.py"
-healthcheckPath = "/health"
-healthcheckTimeout = 300
