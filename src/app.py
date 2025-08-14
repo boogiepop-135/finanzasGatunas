@@ -217,6 +217,9 @@ def create_chart(transactions, chart_type='gastos_por_categoria'):
     
     return img_base64
 
+# Inicializar la base de datos cuando se importe el módulo
+init_db()
+
 # HTML template principal
 MAIN_PAGE_HTML = """
 <!DOCTYPE html>
@@ -615,9 +618,7 @@ MAIN_PAGE_HTML = """
                         <select id="categoria_id" name="categoria_id">
                             <option value="">Seleccionar categoría</option>
                             {% for cat in categorias %}
-                                {% if cat.tipo == 'ingreso' %}
-                                    <option value="{{ cat.id }}" data-tipo="{{ cat.tipo }}">{{ cat.icono }} {{ cat.nombre }}</option>
-                                {% endif %}
+                                <option value="{{ cat.id }}" data-tipo="{{ cat.tipo }}">{{ cat.icono }} {{ cat.nombre }}</option>
                             {% endfor %}
                         </select>
                     </div>
@@ -1046,9 +1047,6 @@ def api_status():
     })
 
 if __name__ == '__main__':
-    # Inicializar base de datos
-    init_db()
-    
     port = int(os.environ.get('PORT', 3000))
     print(f"🚀 Iniciando aplicación de finanzas en puerto {port}")
     app.run(host='0.0.0.0', port=port, debug=False)
