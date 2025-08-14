@@ -329,15 +329,14 @@ def get_balance():
     # Balance de tarjetas de crédito
     cursor.execute('''
         SELECT COALESCE(SUM(
-            CASE 
-                WHEN t.tipo = 'credito' THEN t.limite_credito - COALESCE(SUM(tr.monto), 0)
-                ELSE 0 
-            END
+            t.limite_credito - COALESCE((
+                SELECT SUM(tr.monto) 
+                FROM transacciones tr 
+                WHERE tr.tarjeta_id = t.id AND tr.tipo = 'gasto'
+            ), 0)
         ), 0)
         FROM tarjetas t
-        LEFT JOIN transacciones tr ON t.id = tr.tarjeta_id AND tr.tipo = 'gasto'
         WHERE t.tipo = 'credito' AND t.activa = 1
-        GROUP BY t.id
     ''')
     balance_credito = cursor.fetchone()[0]
     
