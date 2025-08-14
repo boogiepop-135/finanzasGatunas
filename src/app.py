@@ -241,12 +241,103 @@ MAIN_PAGE_HTML = """
             background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             color: #333;
+            overflow-x: hidden;
         }
         
-        .container {
-            max-width: 1400px;
-            margin: 0 auto;
+        .app-container {
+            display: flex;
+            min-height: 100vh;
+        }
+        
+        .main-content {
+            flex: 1;
             padding: 20px;
+            overflow-y: auto;
+            max-width: calc(100vw - 300px);
+        }
+        
+        .sidebar {
+            width: 300px;
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-left: 1px solid rgba(255, 255, 255, 0.2);
+            padding: 30px 20px;
+            position: fixed;
+            right: 0;
+            top: 0;
+            height: 100vh;
+            overflow-y: auto;
+            box-shadow: -5px 0 25px rgba(0,0,0,0.1);
+        }
+        
+        .sidebar-header {
+            text-align: center;
+            margin-bottom: 40px;
+            padding-bottom: 20px;
+            border-bottom: 2px solid #f0f0f0;
+        }
+        
+        .sidebar-header h2 {
+            color: #667eea;
+            font-size: 1.8rem;
+            margin-bottom: 10px;
+        }
+        
+        .sidebar-header p {
+            color: #666;
+            font-size: 0.9rem;
+        }
+        
+        .nav-menu {
+            list-style: none;
+        }
+        
+        .nav-item {
+            margin-bottom: 10px;
+        }
+        
+        .nav-link {
+            display: flex;
+            align-items: center;
+            padding: 15px 20px;
+            color: #555;
+            text-decoration: none;
+            border-radius: 12px;
+            transition: all 0.3s ease;
+            font-weight: 500;
+        }
+        
+        .nav-link:hover {
+            background: #f8f9fa;
+            color: #667eea;
+            transform: translateX(-5px);
+        }
+        
+        .nav-link.active {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white;
+            box-shadow: 0 5px 15px rgba(102, 126, 234, 0.4);
+        }
+        
+        .nav-link i {
+            margin-right: 15px;
+            font-size: 1.2rem;
+            width: 20px;
+            text-align: center;
+        }
+        
+        .section {
+            display: none;
+            animation: fadeIn 0.5s ease-in;
+        }
+        
+        .section.active {
+            display: block;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
         }
         
         .header {
@@ -322,7 +413,7 @@ MAIN_PAGE_HTML = """
             color: #2196F3;
         }
         
-        .controls-section {
+        .section-card {
             background: white;
             border-radius: 15px;
             padding: 25px;
@@ -330,10 +421,16 @@ MAIN_PAGE_HTML = """
             box-shadow: 0 8px 25px rgba(0,0,0,0.15);
         }
         
-        .controls-section h3 {
+        .section-card h3 {
             color: #667eea;
             margin-bottom: 20px;
             font-size: 1.5rem;
+            display: flex;
+            align-items: center;
+        }
+        
+        .section-card h3 i {
+            margin-right: 10px;
         }
         
         .form-row {
@@ -409,20 +506,6 @@ MAIN_PAGE_HTML = """
             color: white;
         }
         
-        .filters-section {
-            background: white;
-            border-radius: 15px;
-            padding: 25px;
-            margin-bottom: 30px;
-            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
-        }
-        
-        .filters-section h3 {
-            color: #667eea;
-            margin-bottom: 20px;
-            font-size: 1.5rem;
-        }
-        
         .filter-total {
             background: #f8f9fa;
             border-radius: 10px;
@@ -441,20 +524,6 @@ MAIN_PAGE_HTML = """
             font-size: 1.8rem;
             font-weight: bold;
             color: #333;
-        }
-        
-        .transactions-section {
-            background: white;
-            border-radius: 15px;
-            padding: 25px;
-            margin-bottom: 30px;
-            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
-        }
-        
-        .transactions-section h3 {
-            color: #667eea;
-            margin-bottom: 20px;
-            font-size: 1.5rem;
         }
         
         .transactions-table {
@@ -498,20 +567,6 @@ MAIN_PAGE_HTML = """
             color: #FF5722;
         }
         
-        .charts-section {
-            background: white;
-            border-radius: 15px;
-            padding: 25px;
-            margin-bottom: 30px;
-            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
-        }
-        
-        .charts-section h3 {
-            color: #667eea;
-            margin-bottom: 20px;
-            font-size: 1.5rem;
-        }
-        
         .chart-container {
             text-align: center;
             margin: 20px 0;
@@ -548,6 +603,44 @@ MAIN_PAGE_HTML = """
             color: #999;
         }
         
+        .export-buttons {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        
+        @media (max-width: 1024px) {
+            .sidebar {
+                transform: translateX(100%);
+                transition: transform 0.3s ease;
+            }
+            
+            .sidebar.open {
+                transform: translateX(0);
+            }
+            
+            .main-content {
+                max-width: 100vw;
+            }
+            
+            .mobile-menu-toggle {
+                display: block;
+                position: fixed;
+                top: 20px;
+                right: 20px;
+                z-index: 1000;
+                background: #667eea;
+                color: white;
+                border: none;
+                padding: 10px;
+                border-radius: 50%;
+                width: 50px;
+                height: 50px;
+                font-size: 1.2rem;
+                box-shadow: 0 5px 15px rgba(0,0,0,0.2);
+            }
+        }
+        
         @media (max-width: 768px) {
             .form-row {
                 grid-template-columns: 1fr;
@@ -565,239 +658,314 @@ MAIN_PAGE_HTML = """
             .transactions-table td {
                 padding: 10px 8px;
             }
+            
+            .chart-controls {
+                flex-direction: column;
+                align-items: center;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="container">
-        <div class="header">
-            <h1>🐱 Finanzas Gatunas</h1>
-            <p>Control completo de finanzas del hogar</p>
-        </div>
+    <div class="app-container">
+        <!-- Botón de menú móvil -->
+        <button class="mobile-menu-toggle" onclick="toggleSidebar()">
+            <i class="fas fa-bars"></i>
+        </button>
         
-        <!-- Estadísticas principales -->
-        <div class="stats-grid">
-            <div class="stat-card ingresos">
-                <h3><i class="fas fa-arrow-up"></i> Total Ingresos</h3>
-                <div class="amount">${{ "%.2f"|format(balance.ingresos) }}</div>
+        <!-- Contenido principal -->
+        <div class="main-content">
+            <div class="header">
+                <h1>🐱 Finanzas Gatunas</h1>
+                <p>Control completo de finanzas del hogar</p>
             </div>
-            <div class="stat-card gastos">
-                <h3><i class="fas fa-arrow-down"></i> Total Gastos</h3>
-                <div class="amount">${{ "%.2f"|format(balance.gastos) }}</div>
-            </div>
-            <div class="stat-card balance">
-                <h3><i class="fas fa-balance-scale"></i> Balance</h3>
-                <div class="amount">${{ "%.2f"|format(balance.balance) }}</div>
-            </div>
-        </div>
-        
-        <!-- Controles para agregar transacciones -->
-        <div class="controls-section">
-            <h3><i class="fas fa-plus-circle"></i> Agregar Transacción</h3>
-            <form id="transactionForm" method="POST" action="/add_transaction">
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="descripcion">Descripción *</label>
-                        <input type="text" id="descripcion" name="descripcion" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="monto">Monto *</label>
-                        <input type="number" id="monto" name="monto" step="0.01" min="0" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="tipo">Tipo *</label>
-                        <select id="tipo" name="tipo" required>
-                            <option value="ingreso">Ingreso</option>
-                            <option value="gasto">Gasto</option>
-                        </select>
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="categoria_id">Categoría</label>
-                        <select id="categoria_id" name="categoria_id">
-                            <option value="">Seleccionar categoría</option>
-                            {% for cat in categorias %}
-                                <option value="{{ cat.id }}" data-tipo="{{ cat.tipo }}">{{ cat.icono }} {{ cat.nombre }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label for="fecha">Fecha *</label>
-                        <input type="date" id="fecha" name="fecha" value="{{ today }}" required>
-                    </div>
-                    <div class="form-group">
-                        <label for="notas">Notas</label>
-                        <textarea id="notas" name="notas" rows="1"></textarea>
-                    </div>
-                </div>
-                <button type="submit" class="btn btn-primary">
-                    <i class="fas fa-save"></i> Guardar Transacción
-                </button>
-            </form>
-        </div>
-        
-        <!-- Filtros -->
-        <div class="filters-section">
-            <h3><i class="fas fa-filter"></i> Filtros y Búsqueda</h3>
-            <form id="filterForm" method="GET">
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="filter_tipo">Tipo</label>
-                        <select id="filter_tipo" name="filter_tipo">
-                            <option value="">Todos</option>
-                            <option value="ingreso">Ingresos</option>
-                            <option value="gasto">Gastos</option>
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label for="filter_categoria">Categoría</label>
-                        <select id="filter_categoria" name="filter_categoria">
-                            <option value="">Todas</option>
-                            {% for cat in categorias %}
-                                <option value="{{ cat.id }}">{{ cat.icono }} {{ cat.nombre }}</option>
-                            {% endfor %}
-                        </select>
-                    </div>
-                    <div class="form-group">
-                        <label for="filter_fecha_inicio">Fecha Inicio</label>
-                        <input type="date" id="filter_fecha_inicio" name="filter_fecha_inicio">
-                    </div>
-                    <div class="form-group">
-                        <label for="filter_fecha_fin">Fecha Fin</label>
-                        <input type="date" id="filter_fecha_fin" name="filter_fecha_fin">
-                    </div>
-                </div>
-                <div class="form-row">
-                    <div class="form-group">
-                        <label for="filter_descripcion">Descripción</label>
-                        <input type="text" id="filter_descripcion" name="filter_descripcion" placeholder="Buscar en descripciones...">
-                    </div>
-                    <div class="form-group" style="display: flex; align-items: end;">
-                        <button type="submit" class="btn btn-primary">
-                            <i class="fas fa-search"></i> Aplicar Filtros
-                        </button>
-                        <a href="/" class="btn btn-warning" style="margin-left: 10px;">
-                            <i class="fas fa-times"></i> Limpiar
-                        </a>
-                    </div>
-                </div>
-            </form>
             
-            {% if filtros_aplicados %}
-            <div class="filter-total">
-                <h4>Total del Filtro Aplicado</h4>
-                <div class="amount">
-                    {% if filtros_aplicados.tipo == 'ingreso' %}
-                        Ingresos: ${{ "%.2f"|format(total_filtrado) }}
-                    {% elif filtros_aplicados.tipo == 'gasto' %}
-                        Gastos: ${{ "%.2f"|format(total_filtrado) }}
-                    {% else %}
-                        Balance: ${{ "%.2f"|format(total_filtrado) }}
+            <!-- Dashboard -->
+            <div id="dashboard" class="section active">
+                <div class="section-card">
+                    <h3><i class="fas fa-tachometer-alt"></i> Resumen General</h3>
+                    <div class="stats-grid">
+                        <div class="stat-card ingresos">
+                            <h3><i class="fas fa-arrow-up"></i> Total Ingresos</h3>
+                            <div class="amount">${{ "%.2f"|format(balance.ingresos) }}</div>
+                        </div>
+                        <div class="stat-card gastos">
+                            <h3><i class="fas fa-arrow-down"></i> Total Gastos</h3>
+                            <div class="amount">${{ "%.2f"|format(balance.gastos) }}</div>
+                        </div>
+                        <div class="stat-card balance">
+                            <h3><i class="fas fa-balance-scale"></i> Balance</h3>
+                            <div class="amount">${{ "%.2f"|format(balance.balance) }}</div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="section-card">
+                    <h3><i class="fas fa-chart-pie"></i> Gráficas y Estadísticas</h3>
+                    <div class="chart-controls">
+                        <button onclick="changeChart('gastos_por_categoria')" class="btn btn-primary">
+                            <i class="fas fa-chart-pie"></i> Gastos por Categoría
+                        </button>
+                        <button onclick="changeChart('balance_mensual')" class="btn btn-success">
+                            <i class="fas fa-chart-line"></i> Balance Mensual
+                        </button>
+                    </div>
+                    
+                    <div class="chart-container">
+                        {% if chart_data %}
+                        <img src="data:image/png;base64,{{ chart_data }}" alt="Gráfica" id="chartImage">
+                        {% else %}
+                        <div class="empty-state">
+                            <i class="fas fa-chart-bar"></i>
+                            <h4>No hay datos para graficar</h4>
+                            <p>Agrega algunas transacciones para ver las gráficas</p>
+                        </div>
+                        {% endif %}
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Agregar Transacciones -->
+            <div id="transactions" class="section">
+                <div class="section-card">
+                    <h3><i class="fas fa-plus-circle"></i> Agregar Transacción</h3>
+                    <form id="transactionForm" method="POST" action="/add_transaction">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="descripcion">Descripción *</label>
+                                <input type="text" id="descripcion" name="descripcion" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="monto">Monto *</label>
+                                <input type="number" id="monto" name="monto" step="0.01" min="0" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="tipo">Tipo *</label>
+                                <select id="tipo" name="tipo" required>
+                                    <option value="ingreso">Ingreso</option>
+                                    <option value="gasto">Gasto</option>
+                                </select>
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="categoria_id">Categoría</label>
+                                <select id="categoria_id" name="categoria_id">
+                                    <option value="">Seleccionar categoría</option>
+                                    {% for cat in categorias %}
+                                        <option value="{{ cat.id }}" data-tipo="{{ cat.tipo }}">{{ cat.icono }} {{ cat.nombre }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="fecha">Fecha *</label>
+                                <input type="date" id="fecha" name="fecha" value="{{ today }}" required>
+                            </div>
+                            <div class="form-group">
+                                <label for="notas">Notas</label>
+                                <textarea id="notas" name="notas" rows="1"></textarea>
+                            </div>
+                        </div>
+                        <button type="submit" class="btn btn-primary">
+                            <i class="fas fa-save"></i> Guardar Transacción
+                        </button>
+                    </form>
+                </div>
+            </div>
+            
+            <!-- Filtros y Búsqueda -->
+            <div id="filters" class="section">
+                <div class="section-card">
+                    <h3><i class="fas fa-filter"></i> Filtros y Búsqueda</h3>
+                    <form id="filterForm" method="GET">
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="filter_tipo">Tipo</label>
+                                <select id="filter_tipo" name="filter_tipo">
+                                    <option value="">Todos</option>
+                                    <option value="ingreso">Ingresos</option>
+                                    <option value="gasto">Gastos</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="filter_categoria">Categoría</label>
+                                <select id="filter_categoria" name="filter_categoria">
+                                    <option value="">Todas</option>
+                                    {% for cat in categorias %}
+                                        <option value="{{ cat.id }}">{{ cat.icono }} {{ cat.nombre }}</option>
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label for="filter_fecha_inicio">Fecha Inicio</label>
+                                <input type="date" id="filter_fecha_inicio" name="filter_fecha_inicio">
+                            </div>
+                            <div class="form-group">
+                                <label for="filter_fecha_fin">Fecha Fin</label>
+                                <input type="date" id="filter_fecha_fin" name="filter_fecha_fin">
+                            </div>
+                        </div>
+                        <div class="form-row">
+                            <div class="form-group">
+                                <label for="filter_descripcion">Descripción</label>
+                                <input type="text" id="filter_descripcion" name="filter_descripcion" placeholder="Buscar en descripciones...">
+                            </div>
+                            <div class="form-group" style="display: flex; align-items: end;">
+                                <button type="submit" class="btn btn-primary">
+                                    <i class="fas fa-search"></i> Aplicar Filtros
+                                </button>
+                                <a href="/" class="btn btn-warning" style="margin-left: 10px;">
+                                    <i class="fas fa-times"></i> Limpiar
+                                </a>
+                            </div>
+                        </div>
+                    </form>
+                    
+                    {% if filtros_aplicados %}
+                    <div class="filter-total">
+                        <h4>Total del Filtro Aplicado</h4>
+                        <div class="amount">
+                            {% if filtros_aplicados.tipo == 'ingreso' %}
+                                Ingresos: ${{ "%.2f"|format(total_filtrado) }}
+                            {% elif filtros_aplicados.tipo == 'gasto' %}
+                                Gastos: ${{ "%.2f"|format(total_filtrado) }}
+                            {% else %}
+                                Balance: ${{ "%.2f"|format(total_filtrado) }}
+                            {% endif %}
+                        </div>
+                    </div>
                     {% endif %}
                 </div>
             </div>
-            {% endif %}
+            
+            <!-- Lista de Transacciones -->
+            <div id="list" class="section">
+                <div class="section-card">
+                    <h3><i class="fas fa-list"></i> Transacciones</h3>
+                    
+                    <div class="export-buttons">
+                        <a href="/export_csv" class="btn btn-success">
+                            <i class="fas fa-download"></i> Exportar CSV
+                        </a>
+                        <a href="/export_json" class="btn btn-warning">
+                            <i class="fas fa-code"></i> Exportar JSON
+                        </a>
+                    </div>
+                    
+                    {% if transacciones %}
+                    <table class="transactions-table">
+                        <thead>
+                            <tr>
+                                <th>Fecha</th>
+                                <th>Descripción</th>
+                                <th>Categoría</th>
+                                <th>Monto</th>
+                                <th>Tipo</th>
+                                <th>Notas</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            {% for t in transacciones %}
+                            <tr>
+                                <td>{{ t.fecha }}</td>
+                                <td>{{ t.descripcion }}</td>
+                                <td>
+                                    {% if t.categoria_nombre %}
+                                        <span style="color: {{ t.color }};">{{ t.icono }} {{ t.categoria_nombre }}</span>
+                                    {% else %}
+                                        <span style="color: #999;">Sin categoría</span>
+                                    {% endif %}
+                                </td>
+                                <td style="font-weight: bold; color: {{ '#4CAF50' if t.tipo == 'ingreso' else '#FF5722' }};">
+                                    ${{ "%.2f"|format(t.monto) }}
+                                </td>
+                                <td>
+                                    <span class="transaction-type {{ t.tipo }}">
+                                        {{ t.tipo.title() }}
+                                    </span>
+                                </td>
+                                <td>{{ t.notas or '-' }}</td>
+                                <td>
+                                    <a href="/edit_transaction/{{ t.id }}" class="btn btn-primary" style="padding: 6px 12px; font-size: 12px;">
+                                        <i class="fas fa-edit"></i>
+                                    </a>
+                                    <a href="/delete_transaction/{{ t.id }}" class="btn btn-danger" style="padding: 6px 12px; font-size: 12px;" 
+                                       onclick="return confirm('¿Estás seguro de eliminar esta transacción?')">
+                                        <i class="fas fa-trash"></i>
+                                    </a>
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+                    </table>
+                    {% else %}
+                    <div class="empty-state">
+                        <i class="fas fa-inbox"></i>
+                        <h4>No hay transacciones</h4>
+                        <p>Agrega tu primera transacción usando el formulario de arriba</p>
+                    </div>
+                    {% endif %}
+                </div>
+            </div>
         </div>
         
-        <!-- Transacciones -->
-        <div class="transactions-section">
-            <h3>
-                <i class="fas fa-list"></i> Transacciones
-                <div style="float: right;">
-                    <a href="/export_csv" class="btn btn-success">
-                        <i class="fas fa-download"></i> Exportar CSV
+        <!-- Sidebar de navegación -->
+        <div class="sidebar" id="sidebar">
+            <div class="sidebar-header">
+                <h2>🐱 Finanzas</h2>
+                <p>Menú de navegación</p>
+            </div>
+            
+            <ul class="nav-menu">
+                <li class="nav-item">
+                    <a href="#dashboard" class="nav-link active" onclick="showSection('dashboard')">
+                        <i class="fas fa-tachometer-alt"></i>
+                        Dashboard
                     </a>
-                    <a href="/export_json" class="btn btn-warning">
-                        <i class="fas fa-code"></i> Exportar JSON
+                </li>
+                <li class="nav-item">
+                    <a href="#transactions" class="nav-link" onclick="showSection('transactions')">
+                        <i class="fas fa-plus-circle"></i>
+                        Agregar
                     </a>
-                </div>
-            </h3>
-            
-            {% if transacciones %}
-            <table class="transactions-table">
-                <thead>
-                    <tr>
-                        <th>Fecha</th>
-                        <th>Descripción</th>
-                        <th>Categoría</th>
-                        <th>Monto</th>
-                        <th>Tipo</th>
-                        <th>Notas</th>
-                        <th>Acciones</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    {% for t in transacciones %}
-                    <tr>
-                        <td>{{ t.fecha }}</td>
-                        <td>{{ t.descripcion }}</td>
-                        <td>
-                            {% if t.categoria_nombre %}
-                                <span style="color: {{ t.color }};">{{ t.icono }} {{ t.categoria_nombre }}</span>
-                            {% else %}
-                                <span style="color: #999;">Sin categoría</span>
-                            {% endif %}
-                        </td>
-                        <td style="font-weight: bold; color: {{ '#4CAF50' if t.tipo == 'ingreso' else '#FF5722' }};">
-                            ${{ "%.2f"|format(t.monto) }}
-                        </td>
-                        <td>
-                            <span class="transaction-type {{ t.tipo }}">
-                                {{ t.tipo.title() }}
-                            </span>
-                        </td>
-                        <td>{{ t.notas or '-' }}</td>
-                        <td>
-                            <a href="/edit_transaction/{{ t.id }}" class="btn btn-primary" style="padding: 6px 12px; font-size: 12px;">
-                                <i class="fas fa-edit"></i>
-                            </a>
-                            <a href="/delete_transaction/{{ t.id }}" class="btn btn-danger" style="padding: 6px 12px; font-size: 12px;" 
-                               onclick="return confirm('¿Estás seguro de eliminar esta transacción?')">
-                                <i class="fas fa-trash"></i>
-                            </a>
-                        </td>
-                    </tr>
-                    {% endfor %}
-                </tbody>
-            </table>
-            {% else %}
-            <div class="empty-state">
-                <i class="fas fa-inbox"></i>
-                <h4>No hay transacciones</h4>
-                <p>Agrega tu primera transacción usando el formulario de arriba</p>
-            </div>
-            {% endif %}
-        </div>
-        
-        <!-- Gráficas -->
-        <div class="charts-section">
-            <h3><i class="fas fa-chart-pie"></i> Gráficas y Estadísticas</h3>
-            
-            <div class="chart-controls">
-                <button onclick="changeChart('gastos_por_categoria')" class="btn btn-primary">
-                    <i class="fas fa-chart-pie"></i> Gastos por Categoría
-                </button>
-                <button onclick="changeChart('balance_mensual')" class="btn btn-success">
-                    <i class="fas fa-chart-line"></i> Balance Mensual
-                </button>
-            </div>
-            
-            <div class="chart-container">
-                {% if chart_data %}
-                <img src="data:image/png;base64,{{ chart_data }}" alt="Gráfica" id="chartImage">
-                {% else %}
-                <div class="empty-state">
-                    <i class="fas fa-chart-bar"></i>
-                    <h4>No hay datos para graficar</h4>
-                    <p>Agrega algunas transacciones para ver las gráficas</p>
-                </div>
-                {% endif %}
-            </div>
+                </li>
+                <li class="nav-item">
+                    <a href="#filters" class="nav-link" onclick="showSection('filters')">
+                        <i class="fas fa-filter"></i>
+                        Filtros
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a href="#list" class="nav-link" onclick="showSection('list')">
+                        <i class="fas fa-list"></i>
+                        Transacciones
+                    </a>
+                </li>
+            </ul>
         </div>
     </div>
     
     <script>
+        // Navegación entre secciones
+        function showSection(sectionId) {
+            // Ocultar todas las secciones
+            document.querySelectorAll('.section').forEach(section => {
+                section.classList.remove('active');
+            });
+            
+            // Mostrar la sección seleccionada
+            document.getElementById(sectionId).classList.add('active');
+            
+            // Actualizar menú activo
+            document.querySelectorAll('.nav-link').forEach(link => {
+                link.classList.remove('active');
+            });
+            
+            // Marcar el enlace activo
+            event.target.classList.add('active');
+        }
+        
         // Cambiar tipo de transacción
         document.getElementById('tipo').addEventListener('change', function() {
             const tipo = this.value;
@@ -837,6 +1005,24 @@ MAIN_PAGE_HTML = """
                 input.name = 'chart_type';
                 input.value = chartType;
                 this.appendChild(input);
+            }
+        });
+        
+        // Toggle sidebar en móvil
+        function toggleSidebar() {
+            const sidebar = document.getElementById('sidebar');
+            sidebar.classList.toggle('open');
+        }
+        
+        // Cerrar sidebar al hacer clic fuera en móvil
+        document.addEventListener('click', function(event) {
+            const sidebar = document.getElementById('sidebar');
+            const mobileToggle = document.querySelector('.mobile-menu-toggle');
+            
+            if (window.innerWidth <= 1024 && 
+                !sidebar.contains(event.target) && 
+                !mobileToggle.contains(event.target)) {
+                sidebar.classList.remove('open');
             }
         });
     </script>
