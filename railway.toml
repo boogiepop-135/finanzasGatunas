@@ -2,6 +2,6 @@
 builder = "nixpacks"
 
 [deploy]
-startCommand = "./start.sh"
+startCommand = "python test_app.py"
 healthcheckPath = "/health"
 healthcheckTimeout = 300
