@@ -3812,6 +3812,7 @@ def add_transaction():
         return redirect('/?error=' + str(e) + '&section=transactions')
 
 @app.route('/edit_transaction/<id>')
+@login_required
 def edit_transaction(id):
     """Editar transacción"""
     if db is None:
@@ -3830,6 +3831,7 @@ def edit_transaction(id):
     return redirect('/?edit_id=' + str(id))
 
 @app.route('/delete_transaction/<id>')
+@login_required
 def delete_transaction(id):
     """Eliminar transacción"""
     try:
@@ -3979,6 +3981,7 @@ def add_membresia():
         return redirect('/?error=' + str(e) + '&section=membresias')
 
 @app.route('/edit_membresia/<id>', methods=['GET', 'POST'])
+@login_required
 def edit_membresia(id):
     """Editar membresía"""
     if request.method == 'POST':
@@ -4022,6 +4025,7 @@ def edit_membresia(id):
     return redirect('/?edit_membresia_id=' + str(id))
 
 @app.route('/delete_membresia/<id>')
+@login_required
 def delete_membresia(id):
     """Eliminar membresía"""
     try:
@@ -4040,12 +4044,14 @@ def delete_membresia(id):
 # ===== RUTAS PARA TARJETAS =====
 
 @app.route('/add_tarjeta', methods=['POST'])
+@login_required
 def add_tarjeta():
     """Agregar nueva tarjeta"""
     try:
         if db is None:
             return redirect('/?error=Base de datos no disponible&section=tarjetas')
         
+        usuario_id = obtener_usuario_actual_id()
         tarjeta = {
             'nombre': request.form['nombre'],
             'tipo': request.form['tipo'],
@@ -4055,6 +4061,7 @@ def add_tarjeta():
             'color': request.form.get('color', '#667eea'),
             'icono': request.form.get('icono', '💳'),
             'activa': True,
+            'usuario_id': usuario_id,
             'created_at': datetime.now()
         }
         
@@ -4065,6 +4072,7 @@ def add_tarjeta():
         return redirect('/?error=' + str(e) + '&section=tarjetas')
 
 @app.route('/edit_tarjeta/<id>', methods=['GET', 'POST'])
+@login_required
 def edit_tarjeta(id):
     """Editar tarjeta"""
     if request.method == 'POST':
@@ -4106,6 +4114,7 @@ def edit_tarjeta(id):
     return redirect('/?edit_tarjeta_id=' + str(id))
 
 @app.route('/delete_tarjeta/<id>')
+@login_required
 def delete_tarjeta(id):
     """Eliminar tarjeta"""
     try:
@@ -4124,18 +4133,21 @@ def delete_tarjeta(id):
 # ===== RUTAS PARA PRESUPUESTOS =====
 
 @app.route('/add_presupuesto', methods=['POST'])
+@login_required
 def add_presupuesto():
     """Agregar nuevo presupuesto"""
     try:
         if db is None:
             return redirect('/?error=Base de datos no disponible&section=presupuestos')
         
+        usuario_id = obtener_usuario_actual_id()
         presupuesto = {
             'mes': request.form['mes'],
             'año': int(request.form['año']),
             'categoria_id': request.form['categoria_id'],
             'monto_planificado': float(request.form['monto_planificado']),
             'monto_gastado': 0,
+            'usuario_id': usuario_id,
             'created_at': datetime.now()
         }
         
@@ -4146,6 +4158,7 @@ def add_presupuesto():
         return redirect('/?error=' + str(e) + '&section=presupuestos')
 
 @app.route('/edit_presupuesto/<id>', methods=['GET', 'POST'])
+@login_required
 def edit_presupuesto(id):
     """Editar presupuesto"""
     if request.method == 'POST':
@@ -4184,6 +4197,7 @@ def edit_presupuesto(id):
     return redirect('/?edit_presupuesto_id=' + str(id))
 
 @app.route('/delete_presupuesto/<id>')
+@login_required
 def delete_presupuesto(id):
     """Eliminar presupuesto"""
     try:
@@ -4202,21 +4216,28 @@ def delete_presupuesto(id):
 # ===== RUTAS PARA RECORDATORIOS =====
 
 @app.route('/add_recordatorio', methods=['POST'])
+@login_required
 def add_recordatorio():
     """Agregar nuevo recordatorio"""
     try:
         if db is None:
             return redirect('/?error=Base de datos no disponible&section=recordatorios')
         
+        usuario_id = obtener_usuario_actual_id()
+        # El formulario usa 'descripcion', lo usamos como 'titulo' si no hay 'titulo'
+        descripcion = request.form.get('descripcion', '')
+        titulo = request.form.get('titulo') or descripcion
+        
         recordatorio = {
-            'titulo': request.form['titulo'],
-            'descripcion': request.form.get('descripcion'),
+            'titulo': titulo,
+            'descripcion': request.form.get('descripcion') or titulo,
             'monto': float(request.form['monto']),
             'fecha_vencimiento': request.form['fecha_vencimiento'],
             'tarjeta_id': request.form['tarjeta_id'] or None,
             'categoria_id': request.form['categoria_id'] or None,
             'estado': 'pendiente',
             'prioridad': request.form.get('prioridad', 'normal'),
+            'usuario_id': usuario_id,
             'created_at': datetime.now()
         }
         
@@ -4227,6 +4248,7 @@ def add_recordatorio():
         return redirect('/?error=' + str(e) + '&section=recordatorios')
 
 @app.route('/edit_recordatorio/<id>', methods=['GET', 'POST'])
+@login_required
 def edit_recordatorio(id):
     """Editar recordatorio"""
     if request.method == 'POST':
@@ -4268,6 +4290,7 @@ def edit_recordatorio(id):
     return redirect('/?edit_recordatorio_id=' + str(id))
 
 @app.route('/delete_recordatorio/<id>')
+@login_required
 def delete_recordatorio(id):
     """Eliminar recordatorio"""
     try:
