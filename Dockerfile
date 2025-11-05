@@ -9,7 +9,8 @@ LABEL description="Aplicación web de gestión de finanzas personales"
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PYTHONPATH=/app/src
 
 # Crear directorio de trabajo
 WORKDIR /app
@@ -35,5 +36,5 @@ USER appuser
 EXPOSE 3000
 
 # Comando por defecto (puede ser sobrescrito)
-CMD ["gunicorn", "--bind", "0.0.0.0:3000", "--workers", "4", "--timeout", "120", "--access-logfile", "-", "--error-logfile", "-", "src.wsgi:application"]
+CMD ["gunicorn", "--bind", "0.0.0.0:3000", "--workers", "4", "--timeout", "120", "--access-logfile", "-", "--error-logfile", "-", "wsgi:application", "--chdir", "/app/src"]
 
