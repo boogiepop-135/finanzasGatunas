@@ -1,7 +1,5 @@
 # docker-compose.yml para desarrollo local con MongoDB
 
-version: '3.8'
-
 services:
   mongodb:
     image: mongo:7.0
@@ -40,9 +38,10 @@ services:
       - mongodb
     networks:
       - finanzas_network
-    volumes:
-      # Montar código para desarrollo (opcional, comentar en producción)
-      # - ./src:/app/src
+    # Volúmenes comentados para producción
+    # Descomentar solo si necesitas montar código para desarrollo
+    # volumes:
+    #   - ./src:/app/src
 
 volumes:
   mongodb_data:
