@@ -1,0 +1,68 @@
+# .dockerignore - Archivos a excluir del contexto de Docker
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+.venv
+*.egg-info/
+dist/
+build/
+
+# Flask
+instance/
+.webassets-cache
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Git
+.git/
+.gitignore
+
+# Documentation
+docs/
+*.md
+!README.md
+
+# Scripts de desarrollo
+*.bat
+*.sh
+start.py
+run_local.py
+ejecutar.bat
+
+# Migraciones (no se usan con MongoDB)
+migrations/
+
+# Otros
+Procfile
+runtime.txt
+4geeks.ico
+

@@ -1,0 +1,54 @@
+# docker-compose.yml para desarrollo local con MongoDB
+
+version: '3.8'
+
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: finanzas_mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongodb_data:/data/db
+    environment:
+      MONGO_INITDB_DATABASE: finanzas_gatunas
+    networks:
+      - finanzas_network
+
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: finanzas_app
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - MONGODB_URI=mongodb://mongodb:27017/
+      - MONGODB_DB_NAME=finanzas_gatunas
+      - SECRET_KEY=change-this-secret-key-in-production
+      - PORT=3000
+      - FLASK_ENV=production
+      - MAIL_SERVER=smtp.gmail.com
+      - MAIL_PORT=587
+      - MAIL_USE_TLS=True
+      - MAIL_USERNAME=${MAIL_USERNAME:-}
+      - MAIL_PASSWORD=${MAIL_PASSWORD:-}
+      - MAIL_DEFAULT_SENDER=${MAIL_DEFAULT_SENDER:-}
+    depends_on:
+      - mongodb
+    networks:
+      - finanzas_network
+    volumes:
+      # Montar código para desarrollo (opcional, comentar en producción)
+      # - ./src:/app/src
+
+volumes:
+  mongodb_data:
+    driver: local
+
+networks:
+  finanzas_network:
+    driver: bridge
+

@@ -2,9 +2,12 @@
 """
 Aplicación de Finanzas del Hogar - Finanzas Gatunas
 """
-from flask import Flask, jsonify, render_template_string, request, redirect, url_for
+from flask import Flask, jsonify, render_template_string, request, redirect, url_for, session, flash
+from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
+from flask_mail import Mail, Message
+from werkzeug.security import generate_password_hash, check_password_hash
+from itsdangerous import URLSafeTimedSerializer
 import os
-import sqlite3
 from datetime import datetime, timedelta
 import json
 import csv
@@ -16,333 +19,481 @@ import matplotlib.pyplot as plt
 import matplotlib.dates as mdates
 from matplotlib.figure import Figure
 import numpy as np
+from pymongo import MongoClient
+from bson import ObjectId
+from dotenv import load_dotenv
+import random
+import string
+
+# Cargar variables de entorno
+load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'finanzas-gatunas-secret-key')
 
-# Configuración de la base de datos
-DATABASE = 'finanzas.db'
+# Configuración de Flask-Login
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = 'login'
+login_manager.login_message = 'Por favor inicia sesión para acceder a esta página.'
+
+# Configuración de Flask-Mail
+app.config['MAIL_SERVER'] = os.environ.get('MAIL_SERVER', 'smtp.gmail.com')
+app.config['MAIL_PORT'] = int(os.environ.get('MAIL_PORT', 587))
+app.config['MAIL_USE_TLS'] = os.environ.get('MAIL_USE_TLS', 'True').lower() == 'true'
+app.config['MAIL_USERNAME'] = os.environ.get('MAIL_USERNAME', '')
+app.config['MAIL_PASSWORD'] = os.environ.get('MAIL_PASSWORD', '')
+app.config['MAIL_DEFAULT_SENDER'] = os.environ.get('MAIL_DEFAULT_SENDER', app.config['MAIL_USERNAME'])
+
+mail = Mail(app)
+
+# Configuración de MongoDB
+MONGODB_URI = os.environ.get('MONGODB_URI', 'mongodb://localhost:27017/')
+MONGODB_DB_NAME = os.environ.get('MONGODB_DB_NAME', 'finanzas_gatunas')
+
+# Conectar a MongoDB
+try:
+    client = MongoClient(MONGODB_URI, serverSelectionTimeoutMS=5000)
+    db = client[MONGODB_DB_NAME]
+    # Verificar conexión
+    client.admin.command('ping')
+    print(f"[OK] Conectado a MongoDB: {MONGODB_DB_NAME}")
+except Exception as e:
+    print(f"[ERROR] Error conectando a MongoDB: {e}")
+    print(f"[INFO] La aplicacion seguira funcionando pero sin base de datos")
+    db = None
+
+# Clase User para Flask-Login
+class User(UserMixin):
+    def __init__(self, user_id, email, nombre, email_verificado=False):
+        self.id = user_id
+        self.email = email
+        self.nombre = nombre
+        self.email_verificado = email_verificado
+
+@login_manager.user_loader
+def load_user(user_id):
+    """Cargar usuario desde MongoDB"""
+    if db is None:
+        return None
+    try:
+        user_doc = db.usuarios.find_one({'_id': ObjectId(user_id)})
+        if user_doc:
+            return User(
+                str(user_doc['_id']),
+                user_doc['email'],
+                user_doc.get('nombre', ''),
+                user_doc.get('email_verificado', False)
+            )
+    except:
+        pass
+    return None
 
 def init_db():
-    """Inicializar la base de datos"""
-    conn = sqlite3.connect(DATABASE)
-    cursor = conn.cursor()
+    """Inicializar la base de datos con datos por defecto"""
+    if db is None:
+        return
     
-    # Tabla de tarjetas de crédito/débito
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS tarjetas (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nombre TEXT NOT NULL,
-            tipo TEXT NOT NULL,
-            banco TEXT,
-            limite_credito REAL,
-            fecha_vencimiento DATE,
-            color TEXT DEFAULT '#667eea',
-            icono TEXT DEFAULT '💳',
-            activa BOOLEAN DEFAULT 1,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    # Tabla de categorías personalizables
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS categorias (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nombre TEXT UNIQUE NOT NULL,
-            tipo TEXT NOT NULL,
-            color TEXT DEFAULT '#667eea',
-            icono TEXT DEFAULT '💰',
-            presupuesto_mensual REAL DEFAULT 0,
-            activa BOOLEAN DEFAULT 1,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-        )
-    ''')
-    
-    # Tabla de membresías y suscripciones
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS membresias (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            nombre TEXT NOT NULL,
-            plataforma TEXT NOT NULL,
-            tipo TEXT NOT NULL,
-            monto_mensual REAL NOT NULL,
-            monto_anual REAL,
-            tarjeta_id INTEGER,
-            fecha_inicio DATE NOT NULL,
-            fecha_renovacion DATE,
-            estado TEXT DEFAULT 'activa',
-            notas TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (tarjeta_id) REFERENCES tarjetas (id)
-        )
-    ''')
-    
-    # Tabla de transacciones mejorada
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS transacciones (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            descripcion TEXT NOT NULL,
-            monto REAL NOT NULL,
-            tipo TEXT NOT NULL,
-            categoria_id INTEGER,
-            tarjeta_id INTEGER,
-            fecha DATE NOT NULL,
-            fecha_vencimiento DATE,
-            cuotas INTEGER DEFAULT 1,
-            cuota_actual INTEGER DEFAULT 1,
-            notas TEXT,
-            comprobante_url TEXT,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (categoria_id) REFERENCES categorias (id),
-            FOREIGN KEY (tarjeta_id) REFERENCES tarjetas (id)
-        )
-    ''')
-    
-    # Tabla de presupuestos mensuales
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS presupuestos (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            mes TEXT NOT NULL,
-            año INTEGER NOT NULL,
-            categoria_id INTEGER,
-            monto_planificado REAL NOT NULL,
-            monto_gastado REAL DEFAULT 0,
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (categoria_id) REFERENCES categorias (id),
-            UNIQUE(mes, año, categoria_id)
-        )
-    ''')
-    
-    # Tabla de recordatorios de pagos
-    cursor.execute('''
-        CREATE TABLE IF NOT EXISTS recordatorios (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            titulo TEXT NOT NULL,
-            descripcion TEXT,
-            monto REAL NOT NULL,
-            fecha_vencimiento DATE NOT NULL,
-            tarjeta_id INTEGER,
-            categoria_id INTEGER,
-            estado TEXT DEFAULT 'pendiente',
-            prioridad TEXT DEFAULT 'normal',
-            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-            FOREIGN KEY (tarjeta_id) REFERENCES tarjetas (id),
-            FOREIGN KEY (categoria_id) REFERENCES categorias (id)
-        )
-    ''')
+    # Colecciones ya están creadas automáticamente en MongoDB
+    # Solo necesitamos insertar datos por defecto si no existen
     
     # Insertar tarjetas por defecto
-    tarjetas_default = [
-        ('Efectivo', 'efectivo', 'N/A', 0, None, '#4CAF50', '💵'),
-        ('Débito Principal', 'debito', 'Banco Local', 0, None, '#2196F3', '🏦'),
-        ('Crédito Visa', 'credito', 'Banco Principal', 50000, '2026-12-31', '#9C27B0', '💳'),
-        ('Crédito Mastercard', 'credito', 'Banco Secundario', 30000, '2026-06-30', '#FF9800', '💳')
-    ]
-    
-    for tarjeta in tarjetas_default:
-        try:
-            cursor.execute('''
-                INSERT INTO tarjetas (nombre, tipo, banco, limite_credito, fecha_vencimiento, color, icono)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-            ''', tarjeta)
-        except sqlite3.IntegrityError:
-            pass
+    if db.tarjetas.count_documents({}) == 0:
+        tarjetas_default = [
+            {
+                'nombre': 'Efectivo',
+                'tipo': 'efectivo',
+                'banco': 'N/A',
+                'limite_credito': 0,
+                'fecha_vencimiento': None,
+                'color': '#4CAF50',
+                'icono': '💵',
+                'activa': True,
+                'created_at': datetime.now()
+            },
+            {
+                'nombre': 'Débito Principal',
+                'tipo': 'debito',
+                'banco': 'Banco Local',
+                'limite_credito': 0,
+                'fecha_vencimiento': None,
+                'color': '#2196F3',
+                'icono': '🏦',
+                'activa': True,
+                'created_at': datetime.now()
+            },
+            {
+                'nombre': 'Crédito Visa',
+                'tipo': 'credito',
+                'banco': 'Banco Principal',
+                'limite_credito': 50000,
+                'fecha_vencimiento': '2026-12-31',
+                'color': '#9C27B0',
+                'icono': '💳',
+                'activa': True,
+                'created_at': datetime.now()
+            },
+            {
+                'nombre': 'Crédito Mastercard',
+                'tipo': 'credito',
+                'banco': 'Banco Secundario',
+                'limite_credito': 30000,
+                'fecha_vencimiento': '2026-06-30',
+                'color': '#FF9800',
+                'icono': '💳',
+                'activa': True,
+                'created_at': datetime.now()
+            }
+        ]
+        db.tarjetas.insert_many(tarjetas_default)
     
     # Insertar categorías por defecto
-    categorias_default = [
-        ('Ingresos', 'ingreso', '#4CAF50', '💰'),
-        ('Salario', 'ingreso', '#4CAF50', '💼'),
-        ('Freelance', 'ingreso', '#4CAF50', '💻'),
-        ('Inversiones', 'ingreso', '#4CAF50', '📈'),
-        ('Alimentación', 'gasto', '#FF5722', '🍽️'),
-        ('Transporte', 'gasto', '#2196F3', '🚗'),
-        ('Vivienda', 'gasto', '#9C27B0', '🏠'),
-        ('Entretenimiento', 'gasto', '#FF9800', '🎮'),
-        ('Salud', 'gasto', '#E91E63', '🏥'),
-        ('Educación', 'gasto', '#607D8B', '📚'),
-        ('Ropa', 'gasto', '#795548', '👕'),
-        ('Membresías', 'gasto', '#FF5722', '🎫'),
-        ('Servicios', 'gasto', '#3F51B5', '🔌'),
-        ('Otros', 'gasto', '#9E9E9E', '📦')
-    ]
-    
-    for cat in categorias_default:
-        try:
-            cursor.execute('INSERT INTO categorias (nombre, tipo, color, icono) VALUES (?, ?, ?, ?)', cat)
-        except sqlite3.IntegrityError:
-            pass
+    if db.categorias.count_documents({}) == 0:
+        categorias_default = [
+            {'nombre': 'Ingresos', 'tipo': 'ingreso', 'color': '#4CAF50', 'icono': '💰', 'presupuesto_mensual': 0, 'activa': True, 'created_at': datetime.now()},
+            {'nombre': 'Salario', 'tipo': 'ingreso', 'color': '#4CAF50', 'icono': '💼', 'presupuesto_mensual': 0, 'activa': True, 'created_at': datetime.now()},
+            {'nombre': 'Freelance', 'tipo': 'ingreso', 'color': '#4CAF50', 'icono': '💻', 'presupuesto_mensual': 0, 'activa': True, 'created_at': datetime.now()},
+            {'nombre': 'Inversiones', 'tipo': 'ingreso', 'color': '#4CAF50', 'icono': '📈', 'presupuesto_mensual': 0, 'activa': True, 'created_at': datetime.now()},
+            {'nombre': 'Alimentación', 'tipo': 'gasto', 'color': '#FF5722', 'icono': '🍽️', 'presupuesto_mensual': 0, 'activa': True, 'created_at': datetime.now()},
+            {'nombre': 'Transporte', 'tipo': 'gasto', 'color': '#2196F3', 'icono': '🚗', 'presupuesto_mensual': 0, 'activa': True, 'created_at': datetime.now()},
+            {'nombre': 'Vivienda', 'tipo': 'gasto', 'color': '#9C27B0', 'icono': '🏠', 'presupuesto_mensual': 0, 'activa': True, 'created_at': datetime.now()},
+            {'nombre': 'Entretenimiento', 'tipo': 'gasto', 'color': '#FF9800', 'icono': '🎮', 'presupuesto_mensual': 0, 'activa': True, 'created_at': datetime.now()},
+            {'nombre': 'Salud', 'tipo': 'gasto', 'color': '#E91E63', 'icono': '🏥', 'presupuesto_mensual': 0, 'activa': True, 'created_at': datetime.now()},
+            {'nombre': 'Educación', 'tipo': 'gasto', 'color': '#607D8B', 'icono': '📚', 'presupuesto_mensual': 0, 'activa': True, 'created_at': datetime.now()},
+            {'nombre': 'Ropa', 'tipo': 'gasto', 'color': '#795548', 'icono': '👕', 'presupuesto_mensual': 0, 'activa': True, 'created_at': datetime.now()},
+            {'nombre': 'Membresías', 'tipo': 'gasto', 'color': '#FF5722', 'icono': '🎫', 'presupuesto_mensual': 0, 'activa': True, 'created_at': datetime.now()},
+            {'nombre': 'Servicios', 'tipo': 'gasto', 'color': '#3F51B5', 'icono': '🔌', 'presupuesto_mensual': 0, 'activa': True, 'created_at': datetime.now()},
+            {'nombre': 'Otros', 'tipo': 'gasto', 'color': '#9E9E9E', 'icono': '📦', 'presupuesto_mensual': 0, 'activa': True, 'created_at': datetime.now()}
+        ]
+        db.categorias.insert_many(categorias_default)
     
     # Insertar membresías de ejemplo
-    membresias_default = [
-        ('Netflix', 'Netflix', 'streaming', 15.99, 191.88, 3, '2024-01-01', '2024-02-01'),
-        ('Spotify', 'Spotify', 'musica', 9.99, 119.88, 3, '2024-01-01', '2024-02-01'),
-        ('Gym', 'Local Gym', 'fitness', 29.99, 359.88, 2, '2024-01-01', '2024-02-01')
-    ]
+    if db.membresias.count_documents({}) == 0:
+        # Obtener IDs de tarjetas
+        tarjeta_ids = list(db.tarjetas.find({}, {'_id': 1}))
+        if len(tarjeta_ids) >= 3:
+            membresias_default = [
+                {
+                    'nombre': 'Netflix',
+                    'plataforma': 'Netflix',
+                    'tipo': 'streaming',
+                    'monto_mensual': 15.99,
+                    'monto_anual': 191.88,
+                    'tarjeta_id': str(tarjeta_ids[2]['_id']),
+                    'fecha_inicio': '2024-01-01',
+                    'fecha_renovacion': '2024-02-01',
+                    'estado': 'activa',
+                    'notas': None,
+                    'created_at': datetime.now()
+                },
+                {
+                    'nombre': 'Spotify',
+                    'plataforma': 'Spotify',
+                    'tipo': 'musica',
+                    'monto_mensual': 9.99,
+                    'monto_anual': 119.88,
+                    'tarjeta_id': str(tarjeta_ids[2]['_id']),
+                    'fecha_inicio': '2024-01-01',
+                    'fecha_renovacion': '2024-02-01',
+                    'estado': 'activa',
+                    'notas': None,
+                    'created_at': datetime.now()
+                },
+                {
+                    'nombre': 'Gym',
+                    'plataforma': 'Local Gym',
+                    'tipo': 'fitness',
+                    'monto_mensual': 29.99,
+                    'monto_anual': 359.88,
+                    'tarjeta_id': str(tarjeta_ids[1]['_id']),
+                    'fecha_inicio': '2024-01-01',
+                    'fecha_renovacion': '2024-02-01',
+                    'estado': 'activa',
+                    'notas': None,
+                    'created_at': datetime.now()
+                }
+            ]
+            db.membresias.insert_many(membresias_default)
+
+def convert_mongo_to_dict(item):
+    """Convertir documento MongoDB a diccionario con id como string"""
+    if item is None:
+        return None
+    doc = dict(item)
+    doc['id'] = str(doc.pop('_id'))
+    return doc
+
+def convert_list_to_dicts(items):
+    """Convertir lista de documentos MongoDB a lista de diccionarios"""
+    return [convert_mongo_to_dict(item) for item in items]
+
+# ===== FUNCIONES DE AUTENTICACIÓN Y VERIFICACIÓN =====
+
+def generar_codigo_verificacion():
+    """Generar código de verificación de 6 dígitos"""
+    return ''.join(random.choices(string.digits, k=6))
+
+def enviar_codigo_verificacion(email, codigo):
+    """Enviar código de verificación por email"""
+    try:
+        msg = Message(
+            subject='Código de Verificación - Finanzas Gatunas',
+            recipients=[email],
+            html=f"""
+            <html>
+            <body style="font-family: Arial, sans-serif; padding: 20px;">
+                <h2 style="color: #667eea;">🐱 Finanzas Gatunas</h2>
+                <p>Tu código de verificación es:</p>
+                <div style="background: #667eea; color: white; padding: 20px; text-align: center; font-size: 32px; font-weight: bold; border-radius: 10px; margin: 20px 0;">
+                    {codigo}
+                </div>
+                <p>Este código expira en 15 minutos.</p>
+                <p>Si no solicitaste este código, ignora este mensaje.</p>
+            </body>
+            </html>
+            """
+        )
+        mail.send(msg)
+        return True
+    except Exception as e:
+        print(f"[ERROR] Error enviando email: {e}")
+        return False
+
+def verificar_permiso(usuario_id, accion='ver'):
+    """Verificar si el usuario tiene permiso para ver/editar"""
+    if not current_user.is_authenticated:
+        return False
     
-    for mem in membresias_default:
-        try:
-            cursor.execute('''
-                INSERT INTO membresias (nombre, plataforma, tipo, monto_mensual, monto_anual, tarjeta_id, fecha_inicio, fecha_renovacion)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-            ''', mem)
-        except sqlite3.IntegrityError:
-            pass
+    # El dueño siempre tiene todos los permisos
+    if str(current_user.id) == str(usuario_id):
+        return True
     
-    conn.commit()
-    conn.close()
-
-def get_db_connection():
-    """Obtener conexión a la base de datos"""
-    conn = sqlite3.connect(DATABASE)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-def get_tarjetas():
-    """Obtener todas las tarjetas"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM tarjetas WHERE activa = 1 ORDER BY nombre')
-    tarjetas = cursor.fetchall()
-    conn.close()
-    return tarjetas
-
-def get_membresias():
-    """Obtener todas las membresías"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT m.*, t.nombre as tarjeta_nombre, t.color as tarjeta_color, t.icono as tarjeta_icono
-        FROM membresias m
-        LEFT JOIN tarjetas t ON m.tarjeta_id = t.id
-        ORDER BY m.fecha_renovacion ASC
-    ''')
-    membresias = cursor.fetchall()
-    conn.close()
-    return membresias
-
-def get_presupuestos(mes=None, año=None):
-    """Obtener presupuestos mensuales"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
+    # Verificar si hay una invitación activa
+    if db:
+        invitacion = db.invitaciones.find_one({
+            'usuario_invitado_id': str(current_user.id),
+            'usuario_propietario_id': str(usuario_id),
+            'estado': 'aceptada'
+        })
+        
+        if invitacion:
+            if accion == 'ver':
+                return invitacion.get('permiso') in ['ver', 'editar']
+            elif accion == 'editar':
+                return invitacion.get('permiso') == 'editar'
     
+    return False
+
+def obtener_usuario_actual_id():
+    """Obtener ID del usuario actual o None"""
+    if current_user.is_authenticated:
+        return str(current_user.id)
+    return None
+
+def obtener_finanzas_compartidas():
+    """Obtener finanzas compartidas con el usuario actual"""
+    if not current_user.is_authenticated or db is None:
+        return []
+    
+    # Obtener invitaciones aceptadas donde el usuario es invitado
+    invitaciones = list(db.invitaciones.find({
+        'usuario_invitado_id': str(current_user.id),
+        'estado': 'aceptada'
+    }))
+    
+    resultado = []
+    for inv in invitaciones:
+        usuario_propietario = db.usuarios.find_one({'_id': ObjectId(inv['usuario_propietario_id'])})
+        if usuario_propietario:
+            resultado.append({
+                'usuario_id': inv['usuario_propietario_id'],
+                'email': usuario_propietario.get('email'),
+                'nombre': usuario_propietario.get('nombre'),
+                'permiso': inv.get('permiso', 'ver')
+            })
+    
+    return resultado
+
+def get_tarjetas(usuario_id=None):
+    """Obtener todas las tarjetas del usuario"""
+    if db is None:
+        return []
+    query = {'activa': True}
+    if usuario_id:
+        query['usuario_id'] = usuario_id
+    tarjetas = list(db.tarjetas.find(query).sort('nombre', 1))
+    return convert_list_to_dicts(tarjetas)
+
+def get_membresias(usuario_id=None):
+    """Obtener todas las membresías del usuario"""
+    if db is None:
+        return []
+    query = {}
+    if usuario_id:
+        query['usuario_id'] = usuario_id
+    membresias = list(db.membresias.find(query).sort('fecha_renovacion', 1))
+    result = []
+    for mem in membresias:
+        mem_dict = convert_mongo_to_dict(mem)
+        # Agregar información de tarjeta
+        if mem_dict.get('tarjeta_id'):
+            tarjeta = db.tarjetas.find_one({'_id': ObjectId(mem_dict['tarjeta_id'])})
+            if tarjeta:
+                mem_dict['tarjeta_nombre'] = tarjeta.get('nombre')
+                mem_dict['tarjeta_color'] = tarjeta.get('color')
+                mem_dict['tarjeta_icono'] = tarjeta.get('icono')
+        result.append(mem_dict)
+    return result
+
+def get_presupuestos(mes=None, año=None, usuario_id=None):
+    """Obtener presupuestos mensuales del usuario"""
+    if db is None:
+        return []
+    query = {}
     if mes and año:
-        cursor.execute('''
-            SELECT p.*, c.nombre as categoria_nombre, c.color, c.icono
-            FROM presupuestos p
-            LEFT JOIN categorias c ON p.categoria_id = c.id
-            WHERE p.mes = ? AND p.año = ?
-            ORDER BY c.nombre
-        ''', (mes, año))
-    else:
-        cursor.execute('''
-            SELECT p.*, c.nombre as categoria_nombre, c.color, c.icono
-            FROM presupuestos p
-            LEFT JOIN categorias c ON p.categoria_id = c.id
-            ORDER BY p.año DESC, p.mes DESC, c.nombre
-        ''')
+        query['mes'] = mes
+        query['año'] = año
+    if usuario_id:
+        query['usuario_id'] = usuario_id
     
-    presupuestos = cursor.fetchall()
-    conn.close()
-    return presupuestos
+    presupuestos = list(db.presupuestos.find(query).sort([('año', -1), ('mes', -1), ('categoria_id', 1)]))
+    result = []
+    for pres in presupuestos:
+        pres_dict = convert_mongo_to_dict(pres)
+        # Agregar información de categoría
+        if pres_dict.get('categoria_id'):
+            categoria = db.categorias.find_one({'_id': ObjectId(pres_dict['categoria_id'])})
+            if categoria:
+                pres_dict['categoria_nombre'] = categoria.get('nombre')
+                pres_dict['color'] = categoria.get('color')
+                pres_dict['icono'] = categoria.get('icono')
+        result.append(pres_dict)
+    return result
 
-def get_recordatorios():
-    """Obtener recordatorios de pagos"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('''
-        SELECT r.*, t.nombre as tarjeta_nombre, c.nombre as categoria_nombre
-        FROM recordatorios r
-        LEFT JOIN tarjetas t ON r.tarjeta_id = t.id
-        LEFT JOIN categorias c ON r.categoria_id = c.id
-        WHERE r.estado = 'pendiente'
-        ORDER BY r.fecha_vencimiento ASC
-    ''')
-    recordatorios = cursor.fetchall()
-    conn.close()
-    return recordatorios
+def get_recordatorios(usuario_id=None):
+    """Obtener recordatorios de pagos del usuario"""
+    if db is None:
+        return []
+    query = {'estado': 'pendiente'}
+    if usuario_id:
+        query['usuario_id'] = usuario_id
+    recordatorios = list(db.recordatorios.find(query).sort('fecha_vencimiento', 1))
+    result = []
+    for rec in recordatorios:
+        rec_dict = convert_mongo_to_dict(rec)
+        # Agregar información de tarjeta
+        if rec_dict.get('tarjeta_id'):
+            tarjeta = db.tarjetas.find_one({'_id': ObjectId(rec_dict['tarjeta_id'])})
+            if tarjeta:
+                rec_dict['tarjeta_nombre'] = tarjeta.get('nombre')
+        # Agregar información de categoría
+        if rec_dict.get('categoria_id'):
+            categoria = db.categorias.find_one({'_id': ObjectId(rec_dict['categoria_id'])})
+            if categoria:
+                rec_dict['categoria_nombre'] = categoria.get('nombre')
+        result.append(rec_dict)
+    return result
 
-def get_transactions(filtros=None):
-    """Obtener transacciones con filtros"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
+def get_transactions(filtros=None, usuario_id=None):
+    """Obtener transacciones con filtros del usuario"""
+    if db is None:
+        return []
+    query = {}
     
-    query = '''
-        SELECT t.*, c.nombre as categoria_nombre, c.color, c.icono,
-               tar.nombre as tarjeta_nombre, tar.color as tarjeta_color, tar.icono as tarjeta_icono
-        FROM transacciones t
-        LEFT JOIN categorias c ON t.categoria_id = c.id
-        LEFT JOIN tarjetas tar ON t.tarjeta_id = tar.id
-        WHERE 1=1
-    '''
-    params = []
+    if usuario_id:
+        query['usuario_id'] = usuario_id
     
     if filtros:
         if filtros.get('tipo'):
-            query += ' AND t.tipo = ?'
-            params.append(filtros['tipo'])
-        
+            query['tipo'] = filtros['tipo']
         if filtros.get('categoria_id'):
-            query += ' AND t.categoria_id = ?'
-            params.append(filtros['categoria_id'])
-        
+            query['categoria_id'] = filtros['categoria_id']
         if filtros.get('tarjeta_id'):
-            query += ' AND t.tarjeta_id = ?'
-            params.append(filtros['tarjeta_id'])
-        
+            query['tarjeta_id'] = filtros['tarjeta_id']
         if filtros.get('fecha_inicio'):
-            query += ' AND t.fecha >= ?'
-            params.append(filtros['fecha_inicio'])
-        
+            query['fecha'] = {'$gte': filtros['fecha_inicio']}
         if filtros.get('fecha_fin'):
-            query += ' AND t.fecha <= ?'
-            params.append(filtros['fecha_fin'])
-        
+            if 'fecha' in query:
+                query['fecha']['$lte'] = filtros['fecha_fin']
+            else:
+                query['fecha'] = {'$lte': filtros['fecha_fin']}
         if filtros.get('descripcion'):
-            query += ' AND t.descripcion LIKE ?'
-            params.append(f'%{filtros["descripcion"]}%')
+            query['descripcion'] = {'$regex': filtros['descripcion'], '$options': 'i'}
     
-    query += ' ORDER BY t.fecha DESC, t.created_at DESC'
-    
-    cursor.execute(query, params)
-    transactions = cursor.fetchall()
-    conn.close()
-    
-    return transactions
+    transacciones = list(db.transacciones.find(query).sort([('fecha', -1), ('created_at', -1)]))
+    result = []
+    for trans in transacciones:
+        trans_dict = convert_mongo_to_dict(trans)
+        # Agregar información de categoría
+        if trans_dict.get('categoria_id'):
+            categoria = db.categorias.find_one({'_id': ObjectId(trans_dict['categoria_id'])})
+            if categoria:
+                trans_dict['categoria_nombre'] = categoria.get('nombre')
+                trans_dict['color'] = categoria.get('color')
+                trans_dict['icono'] = categoria.get('icono')
+        # Agregar información de tarjeta
+        if trans_dict.get('tarjeta_id'):
+            tarjeta = db.tarjetas.find_one({'_id': ObjectId(trans_dict['tarjeta_id'])})
+            if tarjeta:
+                trans_dict['tarjeta_nombre'] = tarjeta.get('nombre')
+                trans_dict['tarjeta_color'] = tarjeta.get('color')
+                trans_dict['tarjeta_icono'] = tarjeta.get('icono')
+        result.append(trans_dict)
+    return result
 
-def get_balance():
-    """Obtener balance total"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
+def get_balance(usuario_id=None):
+    """Obtener balance total del usuario"""
+    if db is None:
+        return {'ingresos': 0, 'gastos': 0, 'balance': 0, 'membresias_mensuales': 0, 'balance_credito': 0}
+    
+    match_query = {}
+    if usuario_id:
+        match_query['usuario_id'] = usuario_id
     
     # Total ingresos
-    cursor.execute('SELECT COALESCE(SUM(monto), 0) FROM transacciones WHERE tipo = "ingreso"')
-    total_ingresos = cursor.fetchone()[0]
+    ingresos_match = {**match_query, 'tipo': 'ingreso'}
+    ingresos_cursor = db.transacciones.aggregate([
+        {'$match': ingresos_match},
+        {'$group': {'_id': None, 'total': {'$sum': '$monto'}}}
+    ])
+    total_ingresos = next(ingresos_cursor, {}).get('total', 0) or 0
     
     # Total gastos
-    cursor.execute('SELECT COALESCE(SUM(monto), 0) FROM transacciones WHERE tipo = "gasto"')
-    total_gastos = cursor.fetchone()[0]
+    gastos_match = {**match_query, 'tipo': 'gasto'}
+    gastos_cursor = db.transacciones.aggregate([
+        {'$match': gastos_match},
+        {'$group': {'_id': None, 'total': {'$sum': '$monto'}}}
+    ])
+    total_gastos = next(gastos_cursor, {}).get('total', 0) or 0
     
     # Total membresías mensuales
-    cursor.execute('SELECT COALESCE(SUM(monto_mensual), 0) FROM membresias WHERE estado = "activa"')
-    total_membresias = cursor.fetchone()[0]
+    membresias_match = {**match_query, 'estado': 'activa'}
+    membresias_cursor = db.membresias.aggregate([
+        {'$match': membresias_match},
+        {'$group': {'_id': None, 'total': {'$sum': '$monto_mensual'}}}
+    ])
+    total_membresias = next(membresias_cursor, {}).get('total', 0) or 0
     
     # Balance de tarjetas de crédito
-    cursor.execute('''
-        SELECT COALESCE(SUM(
-            t.limite_credito - COALESCE((
-                SELECT SUM(tr.monto) 
-                FROM transacciones tr 
-                WHERE tr.tarjeta_id = t.id AND tr.tipo = 'gasto'
-            ), 0)
-        ), 0)
-        FROM tarjetas t
-        WHERE t.tipo = 'credito' AND t.activa = 1
-    ''')
-    balance_credito = cursor.fetchone()[0]
+    tarjetas_query = {'tipo': 'credito', 'activa': True}
+    if usuario_id:
+        tarjetas_query['usuario_id'] = usuario_id
+    tarjetas_credito = db.tarjetas.find(tarjetas_query)
+    balance_credito = 0
+    for tarjeta in tarjetas_credito:
+        limite = tarjeta.get('limite_credito', 0)
+        gastos_tarjeta_query = {'tarjeta_id': str(tarjeta['_id']), 'tipo': 'gasto'}
+        if usuario_id:
+            gastos_tarjeta_query['usuario_id'] = usuario_id
+        gastos_tarjeta = db.transacciones.aggregate([
+            {'$match': gastos_tarjeta_query},
+            {'$group': {'_id': None, 'total': {'$sum': '$monto'}}}
+        ])
+        gastos_total = next(gastos_tarjeta, {}).get('total', 0) or 0
+        balance_credito += limite - gastos_total
     
     balance = total_ingresos - total_gastos
     
-    conn.close()
     return {
         'ingresos': total_ingresos,
         'gastos': total_gastos,
@@ -351,47 +502,55 @@ def get_balance():
         'balance_credito': balance_credito
     }
 
-def get_dashboard_stats():
-    """Obtener estadísticas del dashboard"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
+def get_dashboard_stats(usuario_id=None):
+    """Obtener estadísticas del dashboard del usuario"""
+    if db is None:
+        return {'gastos_por_categoria': [], 'proximos_vencimientos': [], 'recordatorios_urgentes': []}
     
     # Gastos por categoría este mes
     mes_actual = datetime.now().strftime('%Y-%m')
-    cursor.execute('''
-        SELECT c.nombre, c.color, c.icono, COALESCE(SUM(t.monto), 0) as total
-        FROM categorias c
-        LEFT JOIN transacciones t ON c.id = t.categoria_id 
-            AND t.tipo = 'gasto' 
-            AND strftime('%Y-%m', t.fecha) = ?
-        WHERE c.tipo = 'gasto' AND c.activa = 1
-        GROUP BY c.id
-        ORDER BY total DESC
-        LIMIT 10
-    ''', (mes_actual,))
-    gastos_por_categoria = cursor.fetchall()
+    inicio_mes = datetime.now().replace(day=1).strftime('%Y-%m-%d')
+    fin_mes = (datetime.now().replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+    fin_mes_str = fin_mes.strftime('%Y-%m-%d')
+    
+    gastos_match = {'tipo': 'gasto', 'fecha': {'$gte': inicio_mes, '$lte': fin_mes_str}}
+    if usuario_id:
+        gastos_match['usuario_id'] = usuario_id
+    
+    gastos_cursor = db.transacciones.aggregate([
+        {'$match': gastos_match},
+        {'$group': {'_id': '$categoria_id', 'total': {'$sum': '$monto'}}},
+        {'$sort': {'total': -1}},
+        {'$limit': 10}
+    ])
+    
+    gastos_por_categoria = []
+    for item in gastos_cursor:
+        categoria_id = item.get('_id')
+        if categoria_id:
+            categoria = db.categorias.find_one({'_id': ObjectId(categoria_id)})
+            if categoria and categoria.get('tipo') == 'gasto' and categoria.get('activa'):
+                gastos_por_categoria.append({
+                    'nombre': categoria.get('nombre'),
+                    'color': categoria.get('color'),
+                    'icono': categoria.get('icono'),
+                    'total': item.get('total', 0)
+                })
     
     # Próximos vencimientos de tarjetas
-    cursor.execute('''
-        SELECT nombre, fecha_vencimiento, limite_credito
-        FROM tarjetas 
-        WHERE tipo = 'credito' AND activa = 1
-        ORDER BY fecha_vencimiento ASC
-        LIMIT 5
-    ''')
-    proximos_vencimientos = cursor.fetchall()
+    tarjetas_query = {'tipo': 'credito', 'activa': True}
+    if usuario_id:
+        tarjetas_query['usuario_id'] = usuario_id
+    proximos_vencimientos = list(db.tarjetas.find(tarjetas_query).sort('fecha_vencimiento', 1).limit(5))
+    proximos_vencimientos = convert_list_to_dicts(proximos_vencimientos)
     
-    # Recordatorios urgentes
-    cursor.execute('''
-        SELECT titulo, fecha_vencimiento, monto, prioridad
-        FROM recordatorios 
-        WHERE estado = 'pendiente' AND fecha_vencimiento <= date('now', '+7 days')
-        ORDER BY fecha_vencimiento ASC
-        LIMIT 5
-    ''')
-    recordatorios_urgentes = cursor.fetchall()
-    
-    conn.close()
+    # Recordatorios urgentes (próximos 7 días)
+    fecha_limite = (datetime.now() + timedelta(days=7)).strftime('%Y-%m-%d')
+    recordatorios_query = {'estado': 'pendiente', 'fecha_vencimiento': {'$lte': fecha_limite}}
+    if usuario_id:
+        recordatorios_query['usuario_id'] = usuario_id
+    recordatorios_urgentes = list(db.recordatorios.find(recordatorios_query).sort('fecha_vencimiento', 1).limit(5))
+    recordatorios_urgentes = convert_list_to_dicts(recordatorios_urgentes)
     
     return {
         'gastos_por_categoria': gastos_por_categoria,
@@ -399,14 +558,15 @@ def get_dashboard_stats():
         'recordatorios_urgentes': recordatorios_urgentes
     }
 
-def get_categories():
-    """Obtener todas las categorías"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM categorias ORDER BY nombre')
-    categories = cursor.fetchall()
-    conn.close()
-    return categories
+def get_categories(usuario_id=None):
+    """Obtener todas las categorías del usuario"""
+    if db is None:
+        return []
+    query = {}
+    if usuario_id:
+        query['usuario_id'] = usuario_id
+    categorias = list(db.categorias.find(query).sort('nombre', 1))
+    return convert_list_to_dicts(categorias)
 
 def create_chart(transactions, chart_type='gastos_por_categoria'):
     """Crear gráficas"""
@@ -442,17 +602,32 @@ def create_chart(transactions, chart_type='gastos_por_categoria'):
             mes = fecha.strftime('%Y-%m')
             meses.insert(0, fecha.strftime('%B %Y'))
             
-            # Calcular balance del mes
-            conn = get_db_connection()
-            cursor = conn.cursor()
-            cursor.execute('''
-                SELECT COALESCE(SUM(CASE WHEN tipo = 'ingreso' THEN monto ELSE -monto END), 0)
-                FROM transacciones 
-                WHERE strftime('%Y-%m', fecha) = ?
-            ''', (mes,))
-            balance_mes = cursor.fetchone()[0]
+            # Calcular balance del mes usando MongoDB
+            if db:
+                inicio_mes = fecha.replace(day=1).strftime('%Y-%m-%d')
+                fin_mes = (fecha.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+                fin_mes_str = fin_mes.strftime('%Y-%m-%d')
+                
+                balance_cursor = db.transacciones.aggregate([
+                    {'$match': {'fecha': {'$gte': inicio_mes, '$lte': fin_mes_str}}},
+                    {'$group': {
+                        '_id': None,
+                        'balance': {
+                            '$sum': {
+                                '$cond': [
+                                    {'$eq': ['$tipo', 'ingreso']},
+                                    '$monto',
+                                    {'$multiply': ['$monto', -1]}
+                                ]
+                            }
+                        }
+                    }}
+                ])
+                balance_result = next(balance_cursor, {})
+                balance_mes = balance_result.get('balance', 0) or 0
+            else:
+                balance_mes = 0
             balances.insert(0, balance_mes)
-            conn.close()
         
         ax.bar(meses, balances, color=['#4CAF50' if b >= 0 else '#FF5722' for b in balances])
         ax.set_title('Balance Mensual', fontsize=16, fontweight='bold')
@@ -469,6 +644,672 @@ def create_chart(transactions, chart_type='gastos_por_categoria'):
 
 # Inicializar la base de datos cuando se importe el módulo
 init_db()
+
+# Templates HTML para Términos y Condiciones y Privacidad
+TERMINOS_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Términos y Condiciones - Finanzas Gatunas</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 { color: #667eea; margin-bottom: 30px; }
+        h2 { color: #667eea; margin-top: 30px; margin-bottom: 15px; font-size: 1.5rem; }
+        h3 { color: #555; margin-top: 20px; margin-bottom: 10px; }
+        p { margin-bottom: 15px; line-height: 1.6; color: #333; }
+        ul { margin-left: 30px; margin-bottom: 15px; }
+        li { margin-bottom: 8px; line-height: 1.6; }
+        a { color: #667eea; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .footer { margin-top: 40px; padding-top: 20px; border-top: 2px solid #e1e5e9; text-align: center; }
+        .btn-back { display: inline-block; background: #667eea; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; margin-top: 20px; }
+        .btn-back:hover { background: #5a6fd8; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🐱 TÉRMINOS Y CONDICIONES DE USO DE "FINANZAS GATUNAS"</h1>
+        
+        <p><strong>Última actualización:</strong> 4 de noviembre de 2025</p>
+        
+        <h2>1. Objeto del servicio</h2>
+        <p>El presente documento establece los términos bajo los cuales <strong>Levi Eduardo Villarreal Argueta</strong> (en adelante, "el Proveedor"), con domicilio en <strong>Circuito Merlot 2081, México</strong>, pone a disposición del usuario (en adelante, "el Usuario") el acceso y uso de la aplicación web denominada <strong>"Finanzas Gatunas"</strong> (en adelante, "la Plataforma"), destinada a la <strong>gestión y registro de gastos personales y domésticos</strong>.</p>
+        <p>El uso de la Plataforma implica la aceptación plena y sin reservas de los presentes Términos y Condiciones.</p>
+        
+        <h2>2. Cuentas de usuario y registro</h2>
+        <p>Para acceder a algunas funciones, el Usuario podrá crear una cuenta, proporcionando datos verídicos y actualizados. El Usuario es responsable de mantener la confidencialidad de su contraseña y de todas las actividades realizadas desde su cuenta.</p>
+        <p>El Proveedor no será responsable de accesos no autorizados derivados de negligencia del Usuario.</p>
+        
+        <h2>3. Uso del servicio</h2>
+        <p>La Plataforma tiene como finalidad permitir al Usuario registrar, consultar y analizar sus gastos. El servicio puede incluir actualizaciones, mejoras y nuevas funciones.</p>
+        <p>El Usuario se compromete a usar la Plataforma de forma lícita y conforme a la moral, las buenas costumbres y las leyes aplicables en México.</p>
+        
+        <h2>4. Modelo de monetización y pagos</h2>
+        <p>Actualmente el servicio es <strong>gratuito</strong>. En el futuro podrá implementarse un modelo de <strong>suscripción mensual o anual</strong>, con acceso a funciones avanzadas. En caso de hacerlo, se informará oportunamente al Usuario antes de realizar cualquier cobro.</p>
+        <p>No se ofrecerán reembolsos por pagos efectuados, salvo disposición legal en contrario.</p>
+        
+        <h2>5. Propiedad intelectual</h2>
+        <p>Todos los derechos de propiedad intelectual sobre el software, logotipos, diseños, código fuente y demás elementos de la Plataforma son propiedad exclusiva de <strong>Levi Eduardo Villarreal Argueta</strong>, salvo contenido generado por los Usuarios.</p>
+        <p>El Usuario conserva los derechos sobre la información que registre, pero otorga al Proveedor una licencia no exclusiva para usarla de forma agregada o anonimizada con fines estadísticos o de mejora del servicio.</p>
+        
+        <h2>6. Usos prohibidos</h2>
+        <p>El Usuario se compromete a <strong>no realizar las siguientes acciones</strong>:</p>
+        <ul>
+            <li>a) Usar la Plataforma con fines ilícitos o fraudulentos.</li>
+            <li>b) Introducir virus, malware o cualquier código dañino.</li>
+            <li>c) Intentar obtener acceso no autorizado a cuentas, servidores o bases de datos.</li>
+            <li>d) Realizar ingeniería inversa, descompilación o extracción del código fuente.</li>
+            <li>e) Compartir credenciales con terceros sin autorización.</li>
+            <li>f) Utilizar la Plataforma para enviar spam o recopilar información de otros usuarios.</li>
+        </ul>
+        <p>El incumplimiento podrá derivar en la suspensión o cancelación inmediata de la cuenta, sin perjuicio de las acciones legales correspondientes.</p>
+        
+        <h2>7. Limitación de responsabilidad</h2>
+        <p>El Proveedor no garantiza la disponibilidad continua del servicio ni la ausencia de errores o fallos técnicos.</p>
+        <p>En ningún caso será responsable de daños directos, indirectos, incidentales o consecuenciales derivados del uso o imposibilidad de uso de la Plataforma.</p>
+        <p>El Usuario acepta que el servicio se ofrece "tal cual" y bajo su propio riesgo.</p>
+        
+        <h2>8. Modificaciones al servicio y a los términos</h2>
+        <p>El Proveedor podrá modificar, actualizar o suspender temporalmente la Plataforma, así como modificar estos Términos y Condiciones.</p>
+        <p>Las modificaciones serán notificadas a través de la propia Plataforma o por correo electrónico. El uso posterior de la Plataforma constituirá aceptación de dichas modificaciones.</p>
+        
+        <h2>9. Legislación aplicable y jurisdicción</h2>
+        <p>Estos Términos se rigen por las leyes federales de los Estados Unidos Mexicanos.</p>
+        <p>Para la interpretación y cumplimiento, las partes se someten a la <strong>jurisdicción de los tribunales competentes de la ciudad de Querétaro, México</strong>, renunciando a cualquier otro fuero que pudiera corresponderles.</p>
+        
+        <div class="footer">
+            <h3>Contacto</h3>
+            <p>Para cualquier duda sobre estos Términos y Condiciones, puede contactarnos en:</p>
+            <p>📧 <a href="mailto:levi.eduardo2024@gmail.com">levi.eduardo2024@gmail.com</a></p>
+            <a href="/register" class="btn-back">← Volver al Registro</a>
+        </div>
+    </div>
+</body>
+</html>
+"""
+
+PRIVACIDAD_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aviso de Privacidad - Finanzas Gatunas</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 40px 20px;
+        }
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+        }
+        h1 { color: #667eea; margin-bottom: 30px; }
+        h2 { color: #667eea; margin-top: 30px; margin-bottom: 15px; font-size: 1.5rem; }
+        h3 { color: #555; margin-top: 20px; margin-bottom: 10px; }
+        p { margin-bottom: 15px; line-height: 1.6; color: #333; }
+        ul { margin-left: 30px; margin-bottom: 15px; }
+        li { margin-bottom: 8px; line-height: 1.6; }
+        a { color: #667eea; text-decoration: none; }
+        a:hover { text-decoration: underline; }
+        .footer { margin-top: 40px; padding-top: 20px; border-top: 2px solid #e1e5e9; text-align: center; }
+        .btn-back { display: inline-block; background: #667eea; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; margin-top: 20px; }
+        .btn-back:hover { background: #5a6fd8; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🐱 AVISO DE PRIVACIDAD INTEGRAL DE "FINANZAS GATUNAS"</h1>
+        
+        <p><strong>Última actualización:</strong> 4 de noviembre de 2025</p>
+        
+        <p>De conformidad con la <strong>Ley Federal de Protección de Datos Personales en Posesión de los Particulares (LFPDPPP)</strong> y su Reglamento, se emite el presente Aviso de Privacidad.</p>
+        
+        <h2>1. Identidad y domicilio del responsable</h2>
+        <p>El responsable del tratamiento de sus datos personales es <strong>Levi Eduardo Villarreal Argueta</strong>, con domicilio en <strong>Circuito Merlot 2081, México</strong>, y correo electrónico de contacto <a href="mailto:levi.eduardo2024@gmail.com">levi.eduardo2024@gmail.com</a>.</p>
+        
+        <h2>2. Datos personales recabados</h2>
+        <p>Para el funcionamiento de la aplicación <strong>"Finanzas Gatunas"</strong>, se recaban los siguientes datos personales:</p>
+        <ul>
+            <li>Nombre (si el usuario lo proporciona).</li>
+            <li>Correo electrónico.</li>
+            <li>Información de gastos personales o domésticos ingresada voluntariamente.</li>
+            <li>Dirección IP y cookies de sesión (para fines técnicos y analíticos).</li>
+        </ul>
+        <p>No se solicitan datos sensibles como información médica, ideológica o biométrica.</p>
+        
+        <h2>3. Finalidades del tratamiento</h2>
+        <p>Los datos personales serán tratados para las siguientes <strong>finalidades primarias</strong>:</p>
+        <ul>
+            <li>a) Crear y administrar la cuenta del usuario.</li>
+            <li>b) Permitir el registro, almacenamiento y visualización de gastos personales.</li>
+            <li>c) Mejorar la funcionalidad y seguridad de la Plataforma.</li>
+            <li>d) Proporcionar soporte técnico y atención al usuario.</li>
+        </ul>
+        <p>Y para las siguientes <strong>finalidades secundarias</strong>:</p>
+        <ul>
+            <li>a) Realizar análisis estadísticos anónimos de uso para optimizar el servicio.</li>
+            <li>b) Desarrollar nuevas funcionalidades o productos relacionados.</li>
+        </ul>
+        <p>El usuario podrá <strong>manifestar su negativa</strong> para que sus datos sean tratados con estas finalidades secundarias enviando un correo a <a href="mailto:levi.eduardo2024@gmail.com">levi.eduardo2024@gmail.com</a>.</p>
+        
+        <h2>4. Transferencias de datos personales</h2>
+        <p>Actualmente <strong>no se realizan transferencias de datos personales</strong> a terceros.</p>
+        <p>En caso de que en el futuro se compartan datos con terceros (por ejemplo, procesadores de pago, servicios de correo o análisis), se notificará al usuario y se solicitará su consentimiento expreso, salvo aquellas transferencias permitidas por la Ley.</p>
+        
+        <h2>5. Medidas de seguridad</h2>
+        <p>El responsable implementa medidas de seguridad administrativas, técnicas y físicas razonables para proteger los datos personales contra daño, pérdida, alteración, destrucción o acceso no autorizado.</p>
+        
+        <h2>6. Derechos ARCO (Acceso, Rectificación, Cancelación y Oposición)</h2>
+        <p>Usted tiene derecho a acceder, rectificar, cancelar u oponerse al tratamiento de sus datos personales.</p>
+        <p>Para ejercer estos derechos, deberá enviar una solicitud al correo <a href="mailto:levi.eduardo2024@gmail.com">levi.eduardo2024@gmail.com</a>, indicando:</p>
+        <ul>
+            <li>a) Nombre completo y medio para comunicarle la respuesta.</li>
+            <li>b) Documentos que acrediten su identidad.</li>
+            <li>c) Descripción clara del derecho que desea ejercer y los datos correspondientes.</li>
+        </ul>
+        <p>El responsable responderá su solicitud en un plazo máximo de <strong>20 días hábiles</strong> y, de resultar procedente, se hará efectiva dentro de los <strong>15 días hábiles</strong> siguientes.</p>
+        
+        <h2>7. Revocación del consentimiento</h2>
+        <p>Usted puede revocar su consentimiento para el tratamiento de sus datos en cualquier momento, enviando su solicitud al correo antes indicado. Sin embargo, la revocación podría implicar la imposibilidad de seguir utilizando la Plataforma.</p>
+        
+        <h2>8. Uso de cookies y tecnologías similares</h2>
+        <p>La Plataforma puede utilizar cookies y herramientas analíticas para mejorar la experiencia del usuario y obtener información estadística. El usuario puede desactivar el uso de cookies desde la configuración de su navegador.</p>
+        
+        <h2>9. Cambios al aviso de privacidad</h2>
+        <p>El presente Aviso puede modificarse o actualizarse en cualquier momento. Las modificaciones estarán disponibles dentro de la propia aplicación web y se le notificará al usuario por los medios de contacto registrados.</p>
+        
+        <h2>10. Consentimiento del titular</h2>
+        <p>Al utilizar la Plataforma o proporcionar sus datos personales, el usuario <strong>acepta</strong> el tratamiento de los mismos conforme a los términos de este Aviso de Privacidad.</p>
+        
+        <div class="footer">
+            <h3>Contacto del responsable:</h3>
+            <p>📧 <a href="mailto:levi.eduardo2024@gmail.com">levi.eduardo2024@gmail.com</a></p>
+            <p>📍 <strong>Circuito Merlot 2081, México</strong></p>
+            <a href="/register" class="btn-back">← Volver al Registro</a>
+        </div>
+    </div>
+</body>
+</html>
+"""
+
+# Templates HTML para autenticación
+AUTH_TEMPLATES = {
+    'login': """
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Iniciar Sesión - Finanzas Gatunas</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .auth-container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 400px;
+            width: 100%;
+        }
+        .auth-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .auth-header h1 {
+            color: #667eea;
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+        .auth-header p {
+            color: #666;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 600;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e1e5e9;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .btn {
+            width: 100%;
+            padding: 12px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        .btn:hover {
+            background: #5a6fd8;
+        }
+        .alert {
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .alert-error {
+            background: #ffeaea;
+            color: #d32f2f;
+            border-left: 4px solid #d32f2f;
+        }
+        .alert-success {
+            background: #e8f5e8;
+            color: #2e7d32;
+            border-left: 4px solid #2e7d32;
+        }
+        .auth-links {
+            text-align: center;
+            margin-top: 20px;
+        }
+        .auth-links a {
+            color: #667eea;
+            text-decoration: none;
+        }
+        .auth-links a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-header">
+            <h1>🐱 Finanzas Gatunas</h1>
+            <p>Iniciar Sesión</p>
+        </div>
+        
+        {% if error %}
+        <div class="alert alert-error">{{ error }}</div>
+        {% endif %}
+        
+        {% if mensaje %}
+        <div class="alert alert-success">{{ mensaje }}</div>
+        {% endif %}
+        
+        <form method="POST" action="/login">
+            <div class="form-group">
+                <label for="email">Email</label>
+                <input type="email" id="email" name="email" required autofocus>
+            </div>
+            
+            <div class="form-group">
+                <label for="password">Contraseña</label>
+                <input type="password" id="password" name="password" required>
+            </div>
+            
+            <button type="submit" class="btn">Iniciar Sesión</button>
+        </form>
+        
+        <div class="auth-links">
+            <p>¿No tienes cuenta? <a href="/register">Regístrate aquí</a></p>
+        </div>
+    </div>
+</body>
+</html>
+""",
+    'register': """
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Registro - Finanzas Gatunas</title>
+    <script>
+        // Prellenar email si viene en la URL
+        window.onload = function() {
+            const emailInput = document.getElementById('email');
+            const emailPrellenado = '{{ email_prellenado }}';
+            if (emailPrellenado && emailInput) {
+                emailInput.value = emailPrellenado;
+            }
+        }
+    </script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .auth-container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 400px;
+            width: 100%;
+        }
+        .auth-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .auth-header h1 {
+            color: #667eea;
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+        .auth-header p {
+            color: #666;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 600;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e1e5e9;
+            border-radius: 8px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+        }
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .btn {
+            width: 100%;
+            padding: 12px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+        .btn:hover {
+            background: #5a6fd8;
+        }
+        .alert {
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .alert-error {
+            background: #ffeaea;
+            color: #d32f2f;
+            border-left: 4px solid #d32f2f;
+        }
+        .auth-links {
+            text-align: center;
+            margin-top: 20px;
+        }
+        .auth-links a {
+            color: #667eea;
+            text-decoration: none;
+        }
+        .auth-links a:hover {
+            text-decoration: underline;
+        }
+    </style>
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-header">
+            <h1>🐱 Finanzas Gatunas</h1>
+            <p>Crear Cuenta</p>
+        </div>
+        
+        {% if error %}
+        <div class="alert alert-error">{{ error }}</div>
+        {% endif %}
+        
+        {% if mensaje %}
+        <div class="alert alert-success">{{ mensaje }}</div>
+        {% endif %}
+        
+        {% if invitacion_id %}
+        <div class="alert alert-success" style="background: #e3f2fd; color: #1976d2; border-left: 4px solid #1976d2;">
+            <i class="fas fa-info-circle"></i> Has sido invitado a compartir finanzas. Crea tu cuenta para aceptar la invitación.
+        </div>
+        {% endif %}
+        
+        <form method="POST" action="/register">
+            {% if invitacion_id %}
+            <input type="hidden" name="invitacion_id" value="{{ invitacion_id }}">
+            {% endif %}
+            
+            <div class="form-group">
+                <label for="nombre">Nombre (opcional)</label>
+                <input type="text" id="nombre" name="nombre" placeholder="Tu nombre">
+            </div>
+            
+            <div class="form-group">
+                <label for="email">Email *</label>
+                <input type="email" id="email" name="email" value="{{ email_prellenado }}" required autofocus>
+            </div>
+            
+            <div class="form-group">
+                <label for="password">Contraseña *</label>
+                <input type="password" id="password" name="password" required minlength="6">
+                <small style="color: #666; font-size: 12px;">Mínimo 6 caracteres</small>
+            </div>
+            
+            <div class="form-group" style="margin-top: 20px;">
+                <label style="display: flex; align-items: flex-start; cursor: pointer;">
+                    <input type="checkbox" id="acepta_terminos" name="acepta_terminos" required style="margin-right: 10px; margin-top: 4px; width: auto;">
+                    <span style="font-size: 14px;">
+                        Acepto los <a href="/terminos" target="_blank" style="color: #667eea; text-decoration: underline;">Términos y Condiciones</a> 
+                        y el <a href="/privacidad" target="_blank" style="color: #667eea; text-decoration: underline;">Aviso de Privacidad</a> *
+                    </span>
+                </label>
+            </div>
+            
+            <button type="submit" class="btn">Registrarse</button>
+        </form>
+        
+        <div class="auth-links">
+            <p>¿Ya tienes cuenta? <a href="/login">Inicia sesión aquí</a></p>
+        </div>
+    </div>
+</body>
+</html>
+""",
+    'verify': """
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Verificar Email - Finanzas Gatunas</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 20px;
+        }
+        .auth-container {
+            background: white;
+            border-radius: 20px;
+            padding: 40px;
+            box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            max-width: 400px;
+            width: 100%;
+        }
+        .auth-header {
+            text-align: center;
+            margin-bottom: 30px;
+        }
+        .auth-header h1 {
+            color: #667eea;
+            font-size: 2rem;
+            margin-bottom: 10px;
+        }
+        .auth-header p {
+            color: #666;
+        }
+        .form-group {
+            margin-bottom: 20px;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 8px;
+            color: #555;
+            font-weight: 600;
+        }
+        .form-group input {
+            width: 100%;
+            padding: 12px;
+            border: 2px solid #e1e5e9;
+            border-radius: 8px;
+            font-size: 14px;
+            text-align: center;
+            letter-spacing: 8px;
+            font-size: 24px;
+            font-weight: bold;
+            transition: border-color 0.3s;
+        }
+        .form-group input:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .btn {
+            width: 100%;
+            padding: 12px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background 0.3s;
+            margin-bottom: 10px;
+        }
+        .btn:hover {
+            background: #5a6fd8;
+        }
+        .btn-secondary {
+            background: #9e9e9e;
+        }
+        .btn-secondary:hover {
+            background: #757575;
+        }
+        .alert {
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+        .alert-error {
+            background: #ffeaea;
+            color: #d32f2f;
+            border-left: 4px solid #d32f2f;
+        }
+        .alert-success {
+            background: #e8f5e8;
+            color: #2e7d32;
+            border-left: 4px solid #2e7d32;
+        }
+        .code-info {
+            text-align: center;
+            color: #666;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-header">
+            <h1>🐱 Finanzas Gatunas</h1>
+            <p>Verificar Email</p>
+        </div>
+        
+        {% if error %}
+        <div class="alert alert-error">{{ error }}</div>
+        {% endif %}
+        
+        {% if mensaje %}
+        <div class="alert alert-success">{{ mensaje }}</div>
+        {% endif %}
+        
+        <div class="code-info">
+            <p>Ingresa el código de verificación enviado a:</p>
+            <p style="font-weight: bold; color: #667eea;">{{ email }}</p>
+        </div>
+        
+        <form method="POST" action="/verify_email">
+            <div class="form-group">
+                <label for="codigo">Código de Verificación</label>
+                <input type="text" id="codigo" name="codigo" required autofocus maxlength="6" pattern="[0-9]{6}">
+            </div>
+            
+            <button type="submit" class="btn">Verificar</button>
+        </form>
+        
+        <form method="POST" action="/resend_code">
+            <button type="submit" class="btn btn-secondary">Reenviar Código</button>
+        </form>
+    </div>
+</body>
+</html>
+"""
+}
 
 # HTML template principal
 MAIN_PAGE_HTML = """
@@ -1050,14 +1891,37 @@ MAIN_PAGE_HTML = """
                         Recordatorios
                     </a>
                 </li>
+                <li class="nav-item">
+                    <a href="#settings" class="nav-link" onclick="showSection('settings')">
+                        <i class="fas fa-cog"></i>
+                        Configuración
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a href="/logout" class="nav-link">
+                        <i class="fas fa-sign-out-alt"></i>
+                        Cerrar Sesión
+                    </a>
+                </li>
             </ul>
         </div>
         
         <!-- Contenido principal -->
         <div class="main-content">
             <div class="header">
-                <h1>🐱 Finanzas Gatunas</h1>
-                <p>Gestor completo de finanzas personales</p>
+                <div style="display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <h1>🐱 Finanzas Gatunas</h1>
+                        <p>Gestor completo de finanzas personales</p>
+                    </div>
+                    <div style="display: flex; align-items: center; gap: 15px;">
+                        <span style="color: #667eea; font-weight: 600;">{{ usuario_actual.email }}</span>
+                        <a href="/logout" style="background: #f44336; color: white; padding: 10px 20px; border-radius: 8px; text-decoration: none; font-weight: 600; display: flex; align-items: center; gap: 8px;">
+                            <i class="fas fa-sign-out-alt"></i>
+                            Cerrar Sesión
+                        </a>
+                    </div>
+                </div>
             </div>
             
             <!-- Dashboard -->
@@ -1788,129 +2652,249 @@ MAIN_PAGE_HTML = """
             <div id="recordatorios" class="section">
                 <div class="section-card">
                     <h3><i class="fas fa-bell"></i> Recordatorios de Pagos</h3>
-                    <div class="export-buttons">
-                        <button class="btn btn-primary" onclick="showAddRecordatorioForm()">
-                            <i class="fas fa-plus"></i> Nuevo Recordatorio
-                        </button>
-                    </div>
+                    <button onclick="showAddRecordatorioForm()" class="btn-primary">
+                        <i class="fas fa-plus"></i> Agregar Recordatorio
+                    </button>
                     
-                    <!-- Formulario para agregar recordatorio -->
-                    <div id="addRecordatorioForm" class="section-card" style="display: none; margin-top: 20px;">
-                        <h4><i class="fas fa-plus"></i> Crear Nuevo Recordatorio</h4>
-                        <form method="POST" action="/add_recordatorio">
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label for="recordatorio_titulo">Título *</label>
-                                    <input type="text" id="recordatorio_titulo" name="titulo" required>
-                                </div>
-                                <div class="form-group">
-                                    <label for="recordatorio_monto">Monto *</label>
-                                    <input type="number" id="recordatorio_monto" name="monto" step="0.01" min="0" required>
-                                </div>
-                                <div class="form-group">
-                                    <label for="recordatorio_prioridad">Prioridad</label>
-                                    <select id="recordatorio_prioridad" name="prioridad">
-                                        <option value="baja">Baja</option>
-                                        <option value="normal" selected>Normal</option>
-                                        <option value="alta">Alta</option>
-                                    </select>
-                                </div>
+                    <div id="addRecordatorioForm" style="display: none; margin-top: 20px; padding: 20px; background: #f8f9fa; border-radius: 10px;">
+                        <form action="/add_recordatorio" method="POST">
+                            <div class="form-group">
+                                <label>Descripción *</label>
+                                <input type="text" name="descripcion" required>
                             </div>
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label for="recordatorio_fecha">Fecha de Vencimiento *</label>
-                                    <input type="date" id="recordatorio_fecha" name="fecha_vencimiento" required>
-                                </div>
-                                <div class="form-group">
-                                    <label for="recordatorio_tarjeta">Tarjeta</label>
-                                    <select id="recordatorio_tarjeta" name="tarjeta_id">
-                                        <option value="">Seleccionar tarjeta</option>
-                                        {% for tar in tarjetas %}
-                                            <option value="{{ tar.id }}">{{ tar.icono }} {{ tar.nombre }}</option>
-                                        {% endfor %}
-                                    </select>
-                                </div>
-                                <div class="form-group">
-                                    <label for="recordatorio_categoria">Categoría</label>
-                                    <select id="recordatorio_categoria" name="categoria_id">
-                                        <option value="">Seleccionar categoría</option>
-                                        {% for cat in categorias %}
-                                            <option value="{{ cat.id }}">{{ cat.icono }} {{ cat.nombre }}</option>
-                                        {% endfor %}
-                                    </select>
-                                </div>
+                            <div class="form-group">
+                                <label>Monto *</label>
+                                <input type="number" step="0.01" name="monto" required>
                             </div>
-                            <div class="form-row">
-                                <div class="form-group">
-                                    <label for="recordatorio_descripcion">Descripción</label>
-                                    <textarea id="recordatorio_descripcion" name="descripcion" rows="2" placeholder="Descripción opcional del recordatorio"></textarea>
-                                </div>
+                            <div class="form-group">
+                                <label>Fecha de Vencimiento *</label>
+                                <input type="date" name="fecha_vencimiento" id="recordatorio_fecha" required>
                             </div>
-                            <div class="form-row">
-                                <button type="submit" class="btn btn-primary">
-                                    <i class="fas fa-save"></i> Crear Recordatorio
-                                </button>
-                                <button type="button" class="btn btn-warning" onclick="hideAddRecordatorioForm()">
-                                    <i class="fas fa-times"></i> Cancelar
-                                </button>
+                            <div class="form-group">
+                                <label>Tarjeta</label>
+                                <select name="tarjeta_id">
+                                    <option value="">Seleccionar tarjeta</option>
+                                    {% for tarjeta in tarjetas %}
+                                    <option value="{{ tarjeta.id }}">{{ tarjeta.icono }} {{ tarjeta.nombre }}</option>
+                                    {% endfor %}
+                                </select>
                             </div>
+                            <div class="form-group">
+                                <label>Categoría</label>
+                                <select name="categoria_id">
+                                    <option value="">Seleccionar categoría</option>
+                                    {% for categoria in categorias %}
+                                    {% if categoria.tipo == 'gasto' %}
+                                    <option value="{{ categoria.id }}">{{ categoria.icono }} {{ categoria.nombre }}</option>
+                                    {% endif %}
+                                    {% endfor %}
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Notas</label>
+                                <textarea name="notas" rows="3"></textarea>
+                            </div>
+                            <button type="submit" class="btn-primary">Agregar</button>
+                            <button type="button" onclick="hideAddRecordatorioForm()" class="btn-secondary">Cancelar</button>
                         </form>
                     </div>
                     
-                    {% if recordatorios %}
-                    <table class="transactions-table">
-                        <thead>
-                            <tr>
-                                <th>Título</th>
-                                <th>Descripción</th>
-                                <th>Monto</th>
-                                <th>Vencimiento</th>
-                                <th>Tarjeta</th>
-                                <th>Categoría</th>
-                                <th>Prioridad</th>
-                                <th>Estado</th>
-                                <th>Acciones</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {% for r in recordatorios %}
-                            <tr>
-                                <td>{{ r.titulo }}</td>
-                                <td>{{ r.descripcion or '-' }}</td>
-                                <td>${{ "%.2f"|format(r.monto) }}</td>
-                                <td>{{ r.fecha_vencimiento }}</td>
-                                <td>{{ r.tarjeta_nombre or 'N/A' }}</td>
-                                <td>{{ r.categoria_nombre or 'N/A' }}</td>
-                                <td>
-                                    <span class="transaction-type" style="background: {{ '#FF5722' if r.prioridad == 'alta' else '#FF9800' if r.prioridad == 'media' else '#4CAF50' }};">
-                                        {{ r.prioridad.title() }}
-                                    </span>
-                                </td>
-                                <td>
-                                    <span class="transaction-type {{ r.estado }}">
-                                        {{ r.estado.title() }}
-                                    </span>
-                                </td>
-                                <td>
-                                    <a href="/completar_recordatorio/{{ r.id }}" class="btn btn-success" style="padding: 6px 12px; font-size: 12px;" onclick="return confirm('¿Marcar como completado?')">
-                                        <i class="fas fa-check"></i>
-                                    </a>
-                                    <button class="btn btn-primary" style="padding: 6px 12px; font-size: 12px;" onclick="showEditRecordatorioForm({{ r.id }}, '{{ r.titulo }}', '{{ r.descripcion or '' }}', {{ r.monto }}, '{{ r.fecha_vencimiento }}', {{ r.tarjeta_id or 'null' }}, {{ r.categoria_id or 'null' }}, '{{ r.prioridad }}')">
-                                        <i class="fas fa-edit"></i>
-                                    </button>
-                                    <a href="/delete_recordatorio/{{ r.id }}" class="btn btn-danger" style="padding: 6px 12px; font-size: 12px;" onclick="return confirm('¿Estás seguro de eliminar este recordatorio?')">
-                                        <i class="fas fa-trash"></i>
-                                    </a>
-                                </td>
-                            </tr>
-                            {% endfor %}
-                        </tbody>
-                    </table>
-                    {% else %}
-                    <div class="empty-state">
-                        <i class="fas fa-bell"></i>
-                        <h4>No hay recordatorios</h4>
-                        <p>Crea tu primer recordatorio de pago</p>
+                    <div class="table-container">
+                        <table class="transactions-table">
+                            <thead>
+                                <tr>
+                                    <th>Descripción</th>
+                                    <th>Monto</th>
+                                    <th>Fecha Vencimiento</th>
+                                    <th>Tarjeta</th>
+                                    <th>Categoría</th>
+                                    <th>Estado</th>
+                                    <th>Acciones</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {% if recordatorios %}
+                                {% for recordatorio in recordatorios %}
+                                <tr>
+                                    <td>{{ recordatorio.descripcion }}</td>
+                                    <td>${{ "%.2f"|format(recordatorio.monto) }}</td>
+                                    <td>{{ recordatorio.fecha_vencimiento }}</td>
+                                    <td>{{ recordatorio.tarjeta_nombre or 'N/A' }}</td>
+                                    <td>{{ recordatorio.categoria_nombre or 'N/A' }}</td>
+                                    <td>
+                                        <span class="transaction-type gasto">{{ recordatorio.estado }}</span>
+                                    </td>
+                                    <td>
+                                        <a href="/completar_recordatorio/{{ recordatorio.id }}" class="btn-icon" title="Marcar como completado">
+                                            <i class="fas fa-check"></i>
+                                        </a>
+                                        <a href="/edit_recordatorio/{{ recordatorio.id }}" class="btn-icon" title="Editar">
+                                            <i class="fas fa-edit"></i>
+                                        </a>
+                                        <a href="/delete_recordatorio/{{ recordatorio.id }}" class="btn-icon" title="Eliminar" onclick="return confirm('¿Estás seguro?')">
+                                            <i class="fas fa-trash"></i>
+                                        </a>
+                                    </td>
+                                </tr>
+                                {% endfor %}
+                                {% else %}
+                                <tr>
+                                    <td colspan="7" class="empty-state">
+                                        <i class="fas fa-bell-slash"></i>
+                                        <h4>No hay recordatorios</h4>
+                                        <p>Agrega recordatorios para no olvidar tus pagos</p>
+                                    </td>
+                                </tr>
+                                {% endif %}
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Configuración e Invitaciones -->
+            <div id="settings" class="section">
+                <div class="section-card">
+                    <h3><i class="fas fa-cog"></i> Configuración</h3>
+                    
+                    <div style="margin-bottom: 30px;">
+                        <h4 style="color: #667eea; margin-bottom: 15px;">
+                            <i class="fas fa-user"></i> Usuario Actual
+                        </h4>
+                        <p><strong>Email:</strong> {{ usuario_actual.email }}</p>
+                        <p><strong>Nombre:</strong> {{ usuario_actual.nombre or 'No especificado' }}</p>
+                        <p><strong>Email Verificado:</strong> {% if usuario_actual.email_verificado %}✅ Sí{% else %}❌ No{% endif %}</p>
+                    </div>
+                    
+                    <div style="margin-bottom: 30px;">
+                        <h4 style="color: #667eea; margin-bottom: 15px;">
+                            <i class="fas fa-user-plus"></i> Invitar Usuario
+                        </h4>
+                        <form action="/invite" method="POST" style="background: #f8f9fa; padding: 20px; border-radius: 10px;">
+                            <div class="form-group">
+                                <label>Email del Usuario a Invitar *</label>
+                                <input type="email" name="email" required placeholder="usuario@ejemplo.com">
+                            </div>
+                            <div class="form-group">
+                                <label>Permiso *</label>
+                                <select name="permiso" required>
+                                    <option value="ver">Solo Ver</option>
+                                    <option value="editar">Ver y Editar</option>
+                                </select>
+                            </div>
+                            <button type="submit" class="btn-primary">
+                                <i class="fas fa-paper-plane"></i> Enviar Invitación
+                            </button>
+                        </form>
+                    </div>
+                    
+                    {% if invitaciones_pendientes %}
+                    <div style="margin-bottom: 30px;">
+                        <h4 style="color: #667eea; margin-bottom: 15px;">
+                            <i class="fas fa-clock"></i> Invitaciones Recibidas Pendientes
+                        </h4>
+                        <div class="table-container">
+                            <table class="transactions-table">
+                                <thead>
+                                    <tr>
+                                        <th>De</th>
+                                        <th>Permiso</th>
+                                        <th>Fecha</th>
+                                        <th>Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for inv in invitaciones_pendientes %}
+                                    <tr>
+                                        <td>{{ inv.propietario_nombre or inv.propietario_email }}</td>
+                                        <td>{{ 'Ver y Editar' if inv.permiso == 'editar' else 'Solo Ver' }}</td>
+                                        <td>{{ inv.created_at.strftime('%Y-%m-%d') if inv.created_at else 'N/A' }}</td>
+                                        <td>
+                                            <a href="/accept_invitation?invitacion_id={{ inv.id }}" class="btn-icon" title="Aceptar" style="color: #4CAF50;">
+                                                <i class="fas fa-check"></i>
+                                            </a>
+                                            <a href="/reject_invitation/{{ inv.id }}" class="btn-icon" title="Rechazar" style="color: #f44336;" onclick="return confirm('¿Rechazar esta invitación?')">
+                                                <i class="fas fa-times"></i>
+                                            </a>
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    {% endif %}
+                    
+                    {% if invitaciones_enviadas %}
+                    <div style="margin-bottom: 30px;">
+                        <h4 style="color: #667eea; margin-bottom: 15px;">
+                            <i class="fas fa-paper-plane"></i> Invitaciones Enviadas
+                        </h4>
+                        <div class="table-container">
+                            <table class="transactions-table">
+                                <thead>
+                                    <tr>
+                                        <th>Para</th>
+                                        <th>Permiso</th>
+                                        <th>Estado</th>
+                                        <th>Fecha</th>
+                                        <th>Acciones</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for inv in invitaciones_enviadas %}
+                                    <tr>
+                                        <td>{{ inv.invitado_nombre or inv.invitado_email }}</td>
+                                        <td>{{ 'Ver y Editar' if inv.permiso == 'editar' else 'Solo Ver' }}</td>
+                                        <td>
+                                            <span class="transaction-type {% if inv.estado == 'aceptada' %}ingreso{% else %}gasto{% endif %}">
+                                                {{ inv.estado|title }}
+                                            </span>
+                                        </td>
+                                        <td>{{ inv.created_at.strftime('%Y-%m-%d') if inv.created_at else 'N/A' }}</td>
+                                        <td>
+                                            {% if inv.estado == 'pendiente' %}
+                                            <a href="/remove_invitation/{{ inv.id }}" class="btn-icon" title="Cancelar" style="color: #f44336;" onclick="return confirm('¿Cancelar esta invitación?')">
+                                                <i class="fas fa-trash"></i>
+                                            </a>
+                                            {% endif %}
+                                        </td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                    </div>
+                    {% endif %}
+                    
+                    {% if invitaciones_aceptadas %}
+                    <div style="margin-bottom: 30px;">
+                        <h4 style="color: #667eea; margin-bottom: 15px;">
+                            <i class="fas fa-users"></i> Finanzas Compartidas Conmigo
+                        </h4>
+                        <div class="table-container">
+                            <table class="transactions-table">
+                                <thead>
+                                    <tr>
+                                        <th>Propietario</th>
+                                        <th>Permiso</th>
+                                        <th>Fecha de Aceptación</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {% for inv in invitaciones_aceptadas %}
+                                    <tr>
+                                        <td>{{ inv.propietario_nombre or inv.propietario_email }}</td>
+                                        <td>{{ 'Ver y Editar' if inv.permiso == 'editar' else 'Solo Ver' }}</td>
+                                        <td>{{ inv.fecha_aceptacion.strftime('%Y-%m-%d') if inv.fecha_aceptacion else 'N/A' }}</td>
+                                    </tr>
+                                    {% endfor %}
+                                </tbody>
+                            </table>
+                        </div>
+                        <p style="color: #666; font-size: 14px; margin-top: 10px;">
+                            <i class="fas fa-info-circle"></i> Puedes ver y editar las finanzas de estos usuarios según el permiso asignado.
+                        </p>
                     </div>
                     {% endif %}
                 </div>
@@ -1927,89 +2911,54 @@ MAIN_PAGE_HTML = """
             });
             
             // Mostrar la sección seleccionada
-            document.getElementById(sectionId).classList.add('active');
+            const targetSection = document.getElementById(sectionId);
+            if (targetSection) {
+                targetSection.classList.add('active');
+            }
             
             // Actualizar menú activo
             document.querySelectorAll('.nav-link').forEach(link => {
                 link.classList.remove('active');
-            });
-            
-            // Marcar el enlace activo
-            event.target.classList.add('active');
-        }
-        
-        // Cambiar tipo de transacción
-        document.getElementById('tipo').addEventListener('change', function() {
-            const tipo = this.value;
-            const categoriaSelect = document.getElementById('categoria_id');
-            const options = categoriaSelect.options;
-            
-            // Limpiar selección actual
-            categoriaSelect.value = '';
-            
-            // Mostrar solo categorías del tipo seleccionado
-            for (let i = 0; i < options.length; i++) {
-                const option = options[i];
-                if (option.value === '') continue; // Saltar opción "Seleccionar categoría"
-                
-                const dataTipo = option.getAttribute('data-tipo');
-                if (dataTipo === tipo) {
-                    option.style.display = '';
-                } else {
-                    option.style.display = 'none';
+                if (link.getAttribute('href') === '#' + sectionId) {
+                    link.classList.add('active');
                 }
-            }
-        });
+            });
+        }
         
         // Cambiar gráfica
         function changeChart(chartType) {
             window.location.href = '/?chart_type=' + chartType;
         }
         
-        // Aplicar filtros automáticamente
-        document.getElementById('filterForm').addEventListener('submit', function() {
-            // Agregar parámetros de gráfica si existen
-            const urlParams = new URLSearchParams(window.location.search);
-            const chartType = urlParams.get('chart_type');
-            if (chartType) {
-                const input = document.createElement('input');
-                input.type = 'hidden';
-                input.name = 'chart_type';
-                input.value = chartType;
-                this.appendChild(input);
-            }
-        });
-        
         // Toggle sidebar en móvil
         function toggleSidebar() {
             const sidebar = document.getElementById('sidebar');
-            sidebar.classList.toggle('open');
-        }
-        
-        // Cerrar sidebar al hacer clic fuera en móvil
-        document.addEventListener('click', function(event) {
-            const sidebar = document.getElementById('sidebar');
-            const mobileToggle = document.querySelector('.mobile-menu-toggle');
-            
-            if (window.innerWidth <= 1024 && 
-                !sidebar.contains(event.target) && 
-                !mobileToggle.contains(event.target)) {
-                sidebar.classList.remove('open');
+            if (sidebar) {
+                sidebar.classList.toggle('open');
             }
-        });
+        }
         
         // ===== FUNCIONES PARA FORMULARIOS =====
         
         // Membresías
         function showAddMembresiaForm() {
-            document.getElementById('addMembresiaForm').style.display = 'block';
-            // Establecer fecha actual por defecto
-            const today = new Date().toISOString().split('T')[0];
-            document.getElementById('membresia_fecha_inicio').value = today;
+            const form = document.getElementById('addMembresiaForm');
+            if (form) {
+                form.style.display = 'block';
+                // Establecer fecha actual por defecto
+                const today = new Date().toISOString().split('T')[0];
+                const fechaInput = document.getElementById('membresia_fecha_inicio');
+                if (fechaInput) {
+                    fechaInput.value = today;
+                }
+            }
         }
         
         function hideAddMembresiaForm() {
-            document.getElementById('addMembresiaForm').style.display = 'none';
+            const form = document.getElementById('addMembresiaForm');
+            if (form) {
+                form.style.display = 'none';
+            }
         }
         
         function showEditMembresiaForm(id, nombre, plataforma, tipo, monto_mensual, monto_anual, tarjeta_id, fecha_inicio, fecha_renovacion, notas) {
@@ -2018,64 +2967,107 @@ MAIN_PAGE_HTML = """
             window.location.href = '/?edit_membresia_id=' + id;
         }
         
-                 // Tarjetas
-         function showAddTarjetaForm() {
-             document.getElementById('addTarjetaForm').style.display = 'block';
-         }
-         
-         function hideAddTarjetaForm() {
-             document.getElementById('addTarjetaForm').style.display = 'none';
-         }
-         
-         function showEditTarjetaForm(id, nombre, tipo, banco, limite_credito, fecha_vencimiento, color, icono) {
-             // Actualizar la acción del formulario con el ID correcto
-             document.getElementById('editTarjetaFormElement').action = '/edit_tarjeta/' + id;
-             
-             // Llenar los campos con los datos actuales
-             document.getElementById('edit_tarjeta_nombre').value = nombre;
-             document.getElementById('edit_tarjeta_tipo').value = tipo;
-             document.getElementById('edit_tarjeta_banco').value = banco;
-             document.getElementById('edit_tarjeta_limite').value = limite_credito;
-             document.getElementById('edit_tarjeta_vencimiento').value = fecha_vencimiento;
-             document.getElementById('edit_tarjeta_color').value = color;
-             document.getElementById('edit_tarjeta_icono').value = icono;
-             
-             // Mostrar el formulario
-             document.getElementById('editTarjetaForm').style.display = 'block';
-             
-             // Ocultar el formulario de agregar si está visible
-             document.getElementById('addTarjetaForm').style.display = 'none';
-         }
-         
-         function hideEditTarjetaForm() {
-             document.getElementById('editTarjetaForm').style.display = 'none';
-         }
+        // Tarjetas
+        function showAddTarjetaForm() {
+            const form = document.getElementById('addTarjetaForm');
+            if (form) {
+                form.style.display = 'block';
+            }
+        }
+        
+        function hideAddTarjetaForm() {
+            const form = document.getElementById('addTarjetaForm');
+            if (form) {
+                form.style.display = 'none';
+            }
+        }
+        
+        function showEditTarjetaForm(id, nombre, tipo, banco, limite_credito, fecha_vencimiento, color, icono) {
+            // Actualizar la acción del formulario con el ID correcto
+            const formElement = document.getElementById('editTarjetaFormElement');
+            if (formElement) {
+                formElement.action = '/edit_tarjeta/' + id;
+            }
+            
+            // Llenar los campos con los datos actuales
+            const nombreInput = document.getElementById('edit_tarjeta_nombre');
+            const tipoInput = document.getElementById('edit_tarjeta_tipo');
+            const bancoInput = document.getElementById('edit_tarjeta_banco');
+            const limiteInput = document.getElementById('edit_tarjeta_limite');
+            const vencimientoInput = document.getElementById('edit_tarjeta_vencimiento');
+            const colorInput = document.getElementById('edit_tarjeta_color');
+            const iconoInput = document.getElementById('edit_tarjeta_icono');
+            
+            if (nombreInput) nombreInput.value = nombre || '';
+            if (tipoInput) tipoInput.value = tipo || '';
+            if (bancoInput) bancoInput.value = banco || '';
+            if (limiteInput) limiteInput.value = limite_credito || 0;
+            if (vencimientoInput) vencimientoInput.value = fecha_vencimiento || '';
+            if (colorInput) colorInput.value = color || '#667eea';
+            if (iconoInput) iconoInput.value = icono || '💳';
+            
+            // Mostrar el formulario
+            const editForm = document.getElementById('editTarjetaForm');
+            if (editForm) {
+                editForm.style.display = 'block';
+            }
+            
+            // Ocultar el formulario de agregar si está visible
+            const addForm = document.getElementById('addTarjetaForm');
+            if (addForm) {
+                addForm.style.display = 'none';
+            }
+        }
+        
+        function hideEditTarjetaForm() {
+            const form = document.getElementById('editTarjetaForm');
+            if (form) {
+                form.style.display = 'none';
+            }
+        }
         
         // Presupuestos
         function showAddPresupuestoForm() {
-            document.getElementById('addPresupuestoForm').style.display = 'block';
-            // Establecer mes y año actual por defecto
-            const now = new Date();
-            const months = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
-                          'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-            document.getElementById('presupuesto_mes').value = months[now.getMonth()];
-            document.getElementById('presupuesto_año').value = now.getFullYear();
+            const form = document.getElementById('addPresupuestoForm');
+            if (form) {
+                form.style.display = 'block';
+                // Establecer mes y año actual por defecto
+                const now = new Date();
+                const months = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
+                              'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
+                const mesInput = document.getElementById('presupuesto_mes');
+                const añoInput = document.getElementById('presupuesto_año');
+                if (mesInput) mesInput.value = months[now.getMonth()];
+                if (añoInput) añoInput.value = now.getFullYear();
+            }
         }
         
         function hideAddPresupuestoForm() {
-            document.getElementById('addPresupuestoForm').style.display = 'none';
+            const form = document.getElementById('addPresupuestoForm');
+            if (form) {
+                form.style.display = 'none';
+            }
         }
         
         // Recordatorios
         function showAddRecordatorioForm() {
-            document.getElementById('addRecordatorioForm').style.display = 'block';
-            // Establecer fecha actual por defecto
-            const today = new Date().toISOString().split('T')[0];
-            document.getElementById('recordatorio_fecha').value = today;
+            const form = document.getElementById('addRecordatorioForm');
+            if (form) {
+                form.style.display = 'block';
+                // Establecer fecha actual por defecto
+                const today = new Date().toISOString().split('T')[0];
+                const fechaInput = document.getElementById('recordatorio_fecha');
+                if (fechaInput) {
+                    fechaInput.value = today;
+                }
+            }
         }
         
         function hideAddRecordatorioForm() {
-            document.getElementById('addRecordatorioForm').style.display = 'none';
+            const form = document.getElementById('addRecordatorioForm');
+            if (form) {
+                form.style.display = 'none';
+            }
         }
         
         function showEditRecordatorioForm(id, titulo, descripcion, monto, fecha_vencimiento, tarjeta_id, categoria_id, prioridad) {
@@ -2083,39 +3075,558 @@ MAIN_PAGE_HTML = """
             window.location.href = '/?edit_recordatorio_id=' + id;
         }
         
-                 // Inicializar fechas por defecto cuando se carga la página
-         document.addEventListener('DOMContentLoaded', function() {
-             // Establecer fecha actual en formularios de transacciones
-             const today = new Date().toISOString().split('T')[0];
-             const fechaInput = document.getElementById('fecha');
-             if (fechaInput) {
-                 fechaInput.value = today;
-             }
-             
-             // Verificar si hay un parámetro de sección en la URL
-             const urlParams = new URLSearchParams(window.location.search);
-             const section = urlParams.get('section');
-             if (section) {
-                 // Mostrar la sección especificada
-                 showSection(section);
-                 
-                 // Marcar el enlace activo
-                 document.querySelectorAll('.nav-link').forEach(link => {
-                     link.classList.remove('active');
-                     if (link.getAttribute('href') === '#' + section) {
-                         link.classList.add('active');
-                     }
-                 });
-             }
-         });
+        // Inicializar cuando el DOM esté completamente cargado
+        document.addEventListener('DOMContentLoaded', function() {
+            // Establecer fecha actual en formularios de transacciones
+            const today = new Date().toISOString().split('T')[0];
+            const fechaInput = document.getElementById('fecha');
+            if (fechaInput) {
+                fechaInput.value = today;
+            }
+            
+            // Cambiar tipo de transacción - solo si el elemento existe
+            const tipoSelect = document.getElementById('tipo');
+            if (tipoSelect) {
+                tipoSelect.addEventListener('change', function() {
+                    const tipo = this.value;
+                    const categoriaSelect = document.getElementById('categoria_id');
+                    if (categoriaSelect) {
+                        const options = categoriaSelect.options;
+                        
+                        // Limpiar selección actual
+                        categoriaSelect.value = '';
+                        
+                        // Mostrar solo categorías del tipo seleccionado
+                        for (let i = 0; i < options.length; i++) {
+                            const option = options[i];
+                            if (option.value === '') continue; // Saltar opción "Seleccionar categoría"
+                            
+                            const dataTipo = option.getAttribute('data-tipo');
+                            if (dataTipo === tipo) {
+                                option.style.display = '';
+                            } else {
+                                option.style.display = 'none';
+                            }
+                        }
+                    }
+                });
+            }
+            
+            // Aplicar filtros automáticamente - solo si el formulario existe
+            const filterForm = document.getElementById('filterForm');
+            if (filterForm) {
+                filterForm.addEventListener('submit', function() {
+                    // Agregar parámetros de gráfica si existen
+                    const urlParams = new URLSearchParams(window.location.search);
+                    const chartType = urlParams.get('chart_type');
+                    if (chartType) {
+                        const input = document.createElement('input');
+                        input.type = 'hidden';
+                        input.name = 'chart_type';
+                        input.value = chartType;
+                        this.appendChild(input);
+                    }
+                });
+            }
+            
+            // Cerrar sidebar al hacer clic fuera en móvil
+            document.addEventListener('click', function(event) {
+                const sidebar = document.getElementById('sidebar');
+                const mobileToggle = document.querySelector('.mobile-menu-toggle');
+                
+                if (window.innerWidth <= 1024 && sidebar && mobileToggle &&
+                    !sidebar.contains(event.target) && 
+                    !mobileToggle.contains(event.target)) {
+                    sidebar.classList.remove('open');
+                }
+            });
+            
+            // Verificar si hay un parámetro de sección en la URL
+            const urlParams = new URLSearchParams(window.location.search);
+            const section = urlParams.get('section');
+            if (section) {
+                // Mostrar la sección especificada
+                showSection(section);
+                
+                // Marcar el enlace activo
+                document.querySelectorAll('.nav-link').forEach(link => {
+                    link.classList.remove('active');
+                    if (link.getAttribute('href') === '#' + section) {
+                        link.classList.add('active');
+                    }
+                });
+            }
+        });
     </script>
 </body>
 </html>
 """
 
+# ===== RUTAS DE AUTENTICACIÓN =====
+
+@app.route('/terminos')
+def terminos():
+    """Mostrar términos y condiciones"""
+    return render_template_string(TERMINOS_TEMPLATE)
+
+@app.route('/privacidad')
+def privacidad():
+    """Mostrar aviso de privacidad"""
+    return render_template_string(PRIVACIDAD_TEMPLATE)
+
+@app.route('/register', methods=['GET', 'POST'])
+def register():
+    """Registro de nuevo usuario"""
+    if request.method == 'POST':
+        if db is None:
+            return jsonify({'error': 'Base de datos no disponible'}), 500
+        
+        email = request.form.get('email', '').strip().lower()
+        password = request.form.get('password', '')
+        nombre = request.form.get('nombre', '').strip()
+        invitacion_id = request.form.get('invitacion_id') or session.get('invitacion_pendiente')
+        acepta_terminos = request.form.get('acepta_terminos') == 'on'
+        
+        # Validaciones
+        if not email or not password:
+            error_msg = 'Email y contraseña son requeridos'
+            if invitacion_id:
+                return redirect(f'/register?error={error_msg}&invitacion_id={invitacion_id}&email={email}')
+            return redirect(f'/register?error={error_msg}')
+        
+        if len(password) < 6:
+            error_msg = 'La contraseña debe tener al menos 6 caracteres'
+            if invitacion_id:
+                return redirect(f'/register?error={error_msg}&invitacion_id={invitacion_id}&email={email}')
+            return redirect(f'/register?error={error_msg}')
+        
+        if not acepta_terminos:
+            error_msg = 'Debes aceptar los términos y condiciones y el aviso de privacidad para registrarte'
+            if invitacion_id:
+                return redirect(f'/register?error={error_msg}&invitacion_id={invitacion_id}&email={email}')
+            return redirect(f'/register?error={error_msg}')
+        
+        # Verificar si el usuario ya existe
+        if db.usuarios.find_one({'email': email}):
+            error_msg = 'Este email ya está registrado. Por favor inicia sesión.'
+            if invitacion_id:
+                return redirect(f'/login?error={error_msg}&invitacion_id={invitacion_id}')
+            return redirect('/register?error=' + error_msg)
+        
+        # Crear usuario
+        usuario = {
+            'email': email,
+            'password_hash': generate_password_hash(password),
+            'nombre': nombre or email.split('@')[0],
+            'email_verificado': False,
+            'acepta_terminos': True,
+            'fecha_aceptacion_terminos': datetime.now(),
+            'created_at': datetime.now()
+        }
+        
+        resultado = db.usuarios.insert_one(usuario)
+        usuario_id = str(resultado.inserted_id)
+        
+        # Si hay una invitación pendiente, actualizarla con el ID del usuario
+        if invitacion_id:
+            try:
+                invitacion = db.invitaciones.find_one({'_id': ObjectId(invitacion_id)})
+                if invitacion and invitacion.get('email_invitado', '').lower() == email.lower():
+                    db.invitaciones.update_one(
+                        {'_id': ObjectId(invitacion_id)},
+                        {'$set': {'usuario_invitado_id': usuario_id}}
+                    )
+            except:
+                pass
+        
+        # Generar y enviar código de verificación
+        codigo = generar_codigo_verificacion()
+        codigo_doc = {
+            'usuario_id': usuario_id,
+            'email': email,
+            'codigo': codigo,
+            'expiracion': datetime.now() + timedelta(minutes=15),
+            'usado': False,
+            'created_at': datetime.now()
+        }
+        db.codigos_verificacion.insert_one(codigo_doc)
+        
+        # Intentar enviar email (si no está configurado, mostrar código en consola)
+        if app.config.get('MAIL_USERNAME'):
+            enviar_codigo_verificacion(email, codigo)
+            mensaje = 'Se ha enviado un código de verificación a tu email'
+        else:
+            print(f"[INFO] Código de verificación para {email}: {codigo}")
+            mensaje = f'Código de verificación (modo desarrollo): {codigo}'
+        
+        # Guardar email en sesión para verificación
+        session['email_pendiente'] = email
+        session['usuario_id_pendiente'] = usuario_id
+        if invitacion_id:
+            session['invitacion_pendiente'] = invitacion_id
+        
+        return redirect(f'/verify_email?mensaje={mensaje}&invitacion_id={invitacion_id}' if invitacion_id else f'/verify_email?mensaje={mensaje}')
+    
+    # GET: Mostrar formulario de registro
+    error = request.args.get('error', '')
+    mensaje = request.args.get('mensaje', '')
+    invitacion_id = request.args.get('invitacion_id', '')
+    email_prellenado = request.args.get('email', '')
+    
+    # Guardar invitacion_id en sesión si viene por URL
+    if invitacion_id:
+        session['invitacion_pendiente'] = invitacion_id
+    
+    return render_template_string(AUTH_TEMPLATES['register'], error=error, mensaje=mensaje, invitacion_id=invitacion_id, email_prellenado=email_prellenado)
+
+@app.route('/verify_email', methods=['GET', 'POST'])
+def verify_email():
+    """Verificar email con código"""
+    if request.method == 'POST':
+        if db is None:
+            return redirect('/verify_email?error=Base de datos no disponible')
+        
+        codigo = request.form.get('codigo', '').strip()
+        email = session.get('email_pendiente')
+        
+        if not email:
+            return redirect('/register?error=Sesión expirada, por favor regístrate de nuevo')
+        
+        # Buscar código válido
+        codigo_doc = db.codigos_verificacion.find_one({
+            'email': email,
+            'codigo': codigo,
+            'usado': False,
+            'expiracion': {'$gt': datetime.now()}
+        })
+        
+        if not codigo_doc:
+            return redirect('/verify_email?error=Código inválido o expirado')
+        
+        # Marcar código como usado
+        db.codigos_verificacion.update_one(
+            {'_id': codigo_doc['_id']},
+            {'$set': {'usado': True}}
+        )
+        
+        # Verificar email del usuario
+        usuario_id = session.get('usuario_id_pendiente')
+        db.usuarios.update_one(
+            {'_id': ObjectId(usuario_id)},
+            {'$set': {'email_verificado': True}}
+        )
+        
+        # Verificar si hay una invitación pendiente
+        invitacion_id = session.get('invitacion_pendiente') or request.args.get('invitacion_id')
+        
+        # Limpiar sesión
+        session.pop('email_pendiente', None)
+        session.pop('usuario_id_pendiente', None)
+        
+        # Si hay invitación pendiente, redirigir a aceptarla después del login
+        if invitacion_id:
+            return redirect(f'/login?invitacion_id={invitacion_id}&mensaje=Email verificado. Inicia sesión para aceptar la invitación.')
+        
+        return redirect('/login?mensaje=Email verificado correctamente. Inicia sesión.')
+    
+    # GET: Mostrar formulario de verificación
+    error = request.args.get('error', '')
+    mensaje = request.args.get('mensaje', '')
+    email = session.get('email_pendiente', '')
+    return render_template_string(AUTH_TEMPLATES['verify'], error=error, mensaje=mensaje, email=email)
+
+@app.route('/resend_code', methods=['POST'])
+def resend_code():
+    """Reenviar código de verificación"""
+    if db is None:
+        return redirect('/verify_email?error=Base de datos no disponible')
+    
+    email = session.get('email_pendiente')
+    if not email:
+        return redirect('/register?error=Sesión expirada')
+    
+    # Generar nuevo código
+    codigo = generar_codigo_verificacion()
+    usuario = db.usuarios.find_one({'email': email})
+    
+    if usuario:
+        codigo_doc = {
+            'usuario_id': str(usuario['_id']),
+            'email': email,
+            'codigo': codigo,
+            'expiracion': datetime.now() + timedelta(minutes=15),
+            'usado': False,
+            'created_at': datetime.now()
+        }
+        db.codigos_verificacion.insert_one(codigo_doc)
+        
+        if app.config.get('MAIL_USERNAME'):
+            enviar_codigo_verificacion(email, codigo)
+            mensaje = 'Código reenviado a tu email'
+        else:
+            print(f"[INFO] Nuevo código para {email}: {codigo}")
+            mensaje = f'Nuevo código (modo desarrollo): {codigo}'
+        
+        return redirect(f'/verify_email?mensaje={mensaje}')
+    
+    return redirect('/register?error=Usuario no encontrado')
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    """Iniciar sesión"""
+    if request.method == 'POST':
+        if db is None:
+            return redirect('/login?error=Base de datos no disponible')
+        
+        email = request.form.get('email', '').strip().lower()
+        password = request.form.get('password', '')
+        
+        usuario = db.usuarios.find_one({'email': email})
+        
+        if not usuario or not check_password_hash(usuario.get('password_hash', ''), password):
+            return redirect('/login?error=Email o contraseña incorrectos')
+        
+        if not usuario.get('email_verificado', False):
+            session['email_pendiente'] = email
+            session['usuario_id_pendiente'] = str(usuario['_id'])
+            return redirect('/verify_email?error=Por favor verifica tu email primero')
+        
+        # Iniciar sesión
+        user = User(
+            str(usuario['_id']),
+            usuario['email'],
+            usuario.get('nombre', ''),
+            usuario.get('email_verificado', False)
+        )
+        login_user(user, remember=True)
+        
+        # Verificar si hay una invitación pendiente
+        invitacion_id = request.args.get('invitacion_id') or session.get('invitacion_pendiente')
+        
+        if invitacion_id:
+            # Limpiar sesión de invitación
+            session.pop('invitacion_pendiente', None)
+            # Aceptar invitación automáticamente
+            try:
+                invitacion = db.invitaciones.find_one({'_id': ObjectId(invitacion_id)})
+                if invitacion and invitacion.get('email_invitado', '').lower() == email.lower():
+                    db.invitaciones.update_one(
+                        {'_id': ObjectId(invitacion_id)},
+                        {'$set': {
+                            'estado': 'aceptada',
+                            'fecha_aceptacion': datetime.now(),
+                            'usuario_invitado_id': str(usuario['_id'])
+                        }}
+                    )
+                    return redirect('/?success=Invitación aceptada&section=settings')
+            except:
+                pass
+        
+        return redirect('/')
+    
+    # GET: Mostrar formulario de login
+    error = request.args.get('error', '')
+    mensaje = request.args.get('mensaje', '')
+    return render_template_string(AUTH_TEMPLATES['login'], error=error, mensaje=mensaje)
+
+@app.route('/logout')
+@login_required
+def logout():
+    """Cerrar sesión"""
+    logout_user()
+    return redirect('/login?mensaje=Sesión cerrada correctamente')
+
+# ===== RUTAS DE INVITACIONES =====
+
+@app.route('/invite', methods=['POST'])
+@login_required
+def invite_user():
+    """Invitar usuario a compartir finanzas (por email, no requiere que exista)"""
+    if db is None:
+        return redirect('/?error=Base de datos no disponible')
+    
+    email_invitado = request.form.get('email', '').strip().lower()
+    permiso = request.form.get('permiso', 'ver')  # 'ver' o 'editar'
+    
+    if permiso not in ['ver', 'editar']:
+        permiso = 'ver'
+    
+    # Validar email
+    if not email_invitado or '@' not in email_invitado:
+        return redirect('/?error=Email inválido&section=settings')
+    
+    if email_invitado == current_user.email.lower():
+        return redirect('/?error=No puedes invitarte a ti mismo&section=settings')
+    
+    # Verificar si el usuario invitado existe
+    usuario_invitado = db.usuarios.find_one({'email': email_invitado})
+    usuario_invitado_id = None
+    
+    if usuario_invitado:
+        usuario_invitado_id = str(usuario_invitado['_id'])
+        
+        # Verificar si ya existe una invitación activa
+        invitacion_existente = db.invitaciones.find_one({
+            'usuario_propietario_id': str(current_user.id),
+            'usuario_invitado_id': usuario_invitado_id,
+            'estado': {'$in': ['pendiente', 'aceptada']}
+        })
+        
+        if invitacion_existente:
+            return redirect('/?error=Ya existe una invitación para este usuario&section=settings')
+    
+    # Crear invitación (puede ser solo por email si el usuario no existe aún)
+    invitacion = {
+        'usuario_propietario_id': str(current_user.id),
+        'email_invitado': email_invitado,
+        'permiso': permiso,
+        'estado': 'pendiente',
+        'created_at': datetime.now()
+    }
+    
+    if usuario_invitado_id:
+        invitacion['usuario_invitado_id'] = usuario_invitado_id
+    
+    resultado = db.invitaciones.insert_one(invitacion)
+    invitacion_id = str(resultado.inserted_id)
+    
+    # Enviar email de invitación
+    try:
+        url_aceptacion = f"{request.host_url}accept_invitation?invitacion_id={invitacion_id}"
+        nota_usuario = ""
+        if not usuario_invitado:
+            nota_usuario = "<p style='color: #666; font-size: 12px; margin-top: 20px;'><strong>Nota:</strong> Si no tienes cuenta, deberás crear una para aceptar la invitación.</p>"
+        
+        msg = Message(
+            subject=f'{current_user.nombre or current_user.email} te ha invitado a compartir finanzas',
+            recipients=[email_invitado],
+            html=f"""
+            <html>
+            <body style="font-family: Arial, sans-serif; padding: 20px;">
+                <h2 style="color: #667eea;">🐱 Finanzas Gatunas</h2>
+                <p>{current_user.nombre or current_user.email} te ha invitado a {'ver y editar' if permiso == 'editar' else 'ver'} sus finanzas.</p>
+                <p><a href="{url_aceptacion}" 
+                      style="background: #667eea; color: white; padding: 10px 20px; text-decoration: none; border-radius: 5px; display: inline-block; margin: 20px 0;">
+                    Aceptar Invitación
+                </a></p>
+                <p>O copia este enlace en tu navegador:</p>
+                <p style="color: #666; font-size: 12px;">{url_aceptacion}</p>
+                {nota_usuario}
+            </body>
+            </html>
+            """
+        )
+        mail.send(msg)
+    except Exception as e:
+        print(f"[ERROR] Error enviando email de invitación: {e}")
+    
+    return redirect('/?success=Invitación enviada&section=settings')
+
+@app.route('/accept_invitation')
+def accept_invitation():
+    """Aceptar invitación (puede requerir login o registro)"""
+    if db is None:
+        return redirect('/?error=Base de datos no disponible')
+    
+    invitacion_id = request.args.get('invitacion_id')
+    
+    if not invitacion_id:
+        return redirect('/login?error=Invitación no encontrada')
+    
+    try:
+        invitacion = db.invitaciones.find_one({'_id': ObjectId(invitacion_id)})
+        
+        if not invitacion:
+            return redirect('/login?error=Invitación no encontrada')
+        
+        if invitacion['estado'] == 'aceptada':
+            # Si el usuario está logueado, redirigir a settings
+            if current_user.is_authenticated:
+                return redirect('/?mensaje=Invitación ya aceptada&section=settings')
+            return redirect('/login?mensaje=Invitación ya aceptada')
+        
+        # Si el usuario no está logueado, redirigir a login/registro
+        if not current_user.is_authenticated:
+            # Guardar invitación_id en sesión para aceptarla después del login
+            session['invitacion_pendiente'] = invitacion_id
+            email_invitado = invitacion.get('email_invitado')
+            
+            # Verificar si el usuario existe
+            usuario = db.usuarios.find_one({'email': email_invitado})
+            
+            if usuario:
+                # Usuario existe, redirigir a login
+                return redirect(f'/login?invitacion_id={invitacion_id}&mensaje=Inicia sesión para aceptar la invitación')
+            else:
+                # Usuario no existe, redirigir a registro
+                return redirect(f'/register?invitacion_id={invitacion_id}&email={email_invitado}&mensaje=Crea una cuenta para aceptar la invitación')
+        
+        # Usuario está logueado, verificar que es el correcto
+        email_invitado = invitacion.get('email_invitado')
+        if current_user.email.lower() != email_invitado.lower():
+            return redirect('/?error=Esta invitación no es para ti&section=settings')
+        
+        # Actualizar invitación con el ID del usuario si no lo tenía
+        update_data = {
+            'estado': 'aceptada',
+            'fecha_aceptacion': datetime.now()
+        }
+        
+        if 'usuario_invitado_id' not in invitacion:
+            update_data['usuario_invitado_id'] = str(current_user.id)
+        
+        db.invitaciones.update_one(
+            {'_id': ObjectId(invitacion_id)},
+            {'$set': update_data}
+        )
+        
+        # Limpiar sesión
+        session.pop('invitacion_pendiente', None)
+        
+        return redirect('/?success=Invitación aceptada&section=settings')
+    except Exception as e:
+        return redirect(f'/login?error=Error al aceptar invitación: {str(e)}')
+
+@app.route('/reject_invitation/<invitacion_id>')
+@login_required
+def reject_invitation(invitacion_id):
+    """Rechazar invitación"""
+    if db is None:
+        return redirect('/?error=Base de datos no disponible')
+    
+    try:
+        invitacion = db.invitaciones.find_one({'_id': ObjectId(invitacion_id)})
+        
+        if invitacion and str(invitacion['usuario_invitado_id']) == str(current_user.id):
+            db.invitaciones.delete_one({'_id': ObjectId(invitacion_id)})
+        
+        return redirect('/?success=Invitación rechazada&section=settings')
+    except:
+        return redirect('/?error=Error al rechazar invitación')
+
+@app.route('/remove_invitation/<invitacion_id>')
+@login_required
+def remove_invitation(invitacion_id):
+    """Eliminar invitación (solo propietario)"""
+    if db is None:
+        return redirect('/?error=Base de datos no disponible')
+    
+    try:
+        invitacion = db.invitaciones.find_one({'_id': ObjectId(invitacion_id)})
+        
+        if invitacion and str(invitacion['usuario_propietario_id']) == str(current_user.id):
+            db.invitaciones.delete_one({'_id': ObjectId(invitacion_id)})
+        
+        return redirect('/?success=Invitación eliminada&section=settings')
+    except:
+        return redirect('/?error=Error al eliminar invitación')
+
 @app.route('/')
+@login_required
 def home():
     """Página principal con dashboard de finanzas"""
+    usuario_id = obtener_usuario_actual_id()
+    
     # Obtener parámetros de filtro
     filtros = {}
     if request.args.get('filter_tipo'):
@@ -2132,14 +3643,54 @@ def home():
         filtros['descripcion'] = request.args.get('filter_descripcion')
     
     # Obtener datos
-    balance = get_balance()
-    categorias = get_categories()
-    tarjetas = get_tarjetas()
-    membresias = get_membresias()
-    presupuestos = get_presupuestos()
-    recordatorios = get_recordatorios()
-    transacciones = get_transactions(filtros)
-    dashboard_stats = get_dashboard_stats()
+    balance = get_balance(usuario_id)
+    categorias = get_categories(usuario_id)
+    tarjetas = get_tarjetas(usuario_id)
+    membresias = get_membresias(usuario_id)
+    presupuestos = get_presupuestos(usuario_id=usuario_id)
+    recordatorios = get_recordatorios(usuario_id)
+    transacciones = get_transactions(filtros, usuario_id)
+    dashboard_stats = get_dashboard_stats(usuario_id)
+    
+    # Obtener invitaciones pendientes y aceptadas
+    invitaciones_pendientes = []
+    invitaciones_enviadas = []
+    invitaciones_aceptadas = []
+    if db:
+        # Invitaciones recibidas pendientes
+        invitaciones_pendientes = list(db.invitaciones.find({
+            'usuario_invitado_id': str(current_user.id),
+            'estado': 'pendiente'
+        }))
+        invitaciones_pendientes = convert_list_to_dicts(invitaciones_pendientes)
+        for inv in invitaciones_pendientes:
+            propietario = db.usuarios.find_one({'_id': ObjectId(inv['usuario_propietario_id'])})
+            if propietario:
+                inv['propietario_email'] = propietario.get('email')
+                inv['propietario_nombre'] = propietario.get('nombre')
+        
+        # Invitaciones enviadas por el usuario
+        invitaciones_enviadas = list(db.invitaciones.find({
+            'usuario_propietario_id': str(current_user.id)
+        }))
+        invitaciones_enviadas = convert_list_to_dicts(invitaciones_enviadas)
+        for inv in invitaciones_enviadas:
+            invitado = db.usuarios.find_one({'_id': ObjectId(inv['usuario_invitado_id'])})
+            if invitado:
+                inv['invitado_email'] = invitado.get('email')
+                inv['invitado_nombre'] = invitado.get('nombre')
+        
+        # Invitaciones aceptadas (usuarios que comparten finanzas conmigo)
+        invitaciones_aceptadas = list(db.invitaciones.find({
+            'usuario_invitado_id': str(current_user.id),
+            'estado': 'aceptada'
+        }))
+        invitaciones_aceptadas = convert_list_to_dicts(invitaciones_aceptadas)
+        for inv in invitaciones_aceptadas:
+            propietario = db.usuarios.find_one({'_id': ObjectId(inv['usuario_propietario_id'])})
+            if propietario:
+                inv['propietario_email'] = propietario.get('email')
+                inv['propietario_nombre'] = propietario.get('nombre')
     
     # Calcular total del filtro
     total_filtrado = 0
@@ -2170,43 +3721,51 @@ def home():
                                 total_filtrado=total_filtrado,
                                 chart_data=chart_data,
                                 dashboard_stats=dashboard_stats,
+                                invitaciones_pendientes=invitaciones_pendientes,
+                                invitaciones_enviadas=invitaciones_enviadas,
+                                invitaciones_aceptadas=invitaciones_aceptadas,
+                                usuario_actual=current_user,
                                 today=datetime.now().strftime('%Y-%m-%d'))
 
 @app.route('/add_transaction', methods=['POST'])
+@login_required
 def add_transaction():
     """Agregar nueva transacción"""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        if db is None:
+            return redirect('/?error=Base de datos no disponible&section=transactions')
         
-        cursor.execute('''
-            INSERT INTO transacciones (descripcion, monto, tipo, categoria_id, tarjeta_id, fecha, notas)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            request.form['descripcion'],
-            float(request.form['monto']),
-            request.form['tipo'],
-            request.form['categoria_id'] or None,
-            request.form['tarjeta_id'] or None,
-            request.form['fecha'],
-            request.form['notas'] or None
-        ))
+        usuario_id = obtener_usuario_actual_id()
+        transaccion = {
+            'descripcion': request.form['descripcion'],
+            'monto': float(request.form['monto']),
+            'tipo': request.form['tipo'],
+            'categoria_id': request.form['categoria_id'] or None,
+            'tarjeta_id': request.form['tarjeta_id'] or None,
+            'fecha': request.form['fecha'],
+            'notas': request.form.get('notas') or None,
+            'cuotas': 1,
+            'cuota_actual': 1,
+            'usuario_id': usuario_id,
+            'created_at': datetime.now()
+        }
         
-        conn.commit()
-        conn.close()
+        db.transacciones.insert_one(transaccion)
         
         return redirect('/?success=1&section=transactions')
     except Exception as e:
         return redirect('/?error=' + str(e) + '&section=transactions')
 
-@app.route('/edit_transaction/<int:id>')
+@app.route('/edit_transaction/<id>')
 def edit_transaction(id):
     """Editar transacción"""
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM transacciones WHERE id = ?', (id,))
-    transaction = cursor.fetchone()
-    conn.close()
+    if db is None:
+        return redirect('/?error=Base de datos no disponible')
+    
+    try:
+        transaction = db.transacciones.find_one({'_id': ObjectId(id)})
+    except:
+        transaction = None
     
     if not transaction:
         return redirect('/?error=Transacción no encontrada')
@@ -2215,15 +3774,17 @@ def edit_transaction(id):
     # En una versión futura podríamos crear un formulario de edición
     return redirect('/?edit_id=' + str(id))
 
-@app.route('/delete_transaction/<int:id>')
+@app.route('/delete_transaction/<id>')
 def delete_transaction(id):
     """Eliminar transacción"""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('DELETE FROM transacciones WHERE id = ?', (id,))
-        conn.commit()
-        conn.close()
+        if db is None:
+            return redirect('/?error=Base de datos no disponible&section=list')
+        
+        try:
+            db.transacciones.delete_one({'_id': ObjectId(id)})
+        except:
+            return redirect('/?error=Transacción no encontrada&section=list')
         
         return redirect('/?deleted=1&section=list')
     except Exception as e:
@@ -2333,90 +3894,89 @@ def api_status():
 # ===== RUTAS PARA MEMBRESÍAS =====
 
 @app.route('/add_membresia', methods=['POST'])
+@login_required
 def add_membresia():
     """Agregar nueva membresía"""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        if db is None:
+            return redirect('/?error=Base de datos no disponible&section=membresias')
         
-        cursor.execute('''
-            INSERT INTO membresias (nombre, plataforma, tipo, monto_mensual, monto_anual, tarjeta_id, fecha_inicio, fecha_renovacion, notas)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            request.form['nombre'],
-            request.form['plataforma'],
-            request.form['tipo'],
-            float(request.form['monto_mensual']),
-            float(request.form['monto_anual']) if request.form.get('monto_anual') else None,
-            request.form['tarjeta_id'] or None,
-            request.form['fecha_inicio'],
-            request.form['fecha_renovacion'],
-            request.form.get('notas')
-        ))
+        usuario_id = obtener_usuario_actual_id()
+        membresia = {
+            'nombre': request.form['nombre'],
+            'plataforma': request.form.get('plataforma') or None,
+            'tipo': request.form.get('tipo') or None,
+            'monto_mensual': float(request.form['monto_mensual']),
+            'monto_anual': float(request.form.get('monto_anual', 0) or 0),
+            'tarjeta_id': request.form['tarjeta_id'] or None,
+            'fecha_inicio': request.form['fecha_inicio'],
+            'fecha_renovacion': request.form['fecha_renovacion'],
+            'estado': request.form.get('estado', 'activa'),
+            'notas': request.form.get('notas') or None,
+            'usuario_id': usuario_id,
+            'created_at': datetime.now()
+        }
         
-        conn.commit()
-        conn.close()
+        db.membresias.insert_one(membresia)
         
-        return redirect('/?success=membresia_agregada&section=membresias')
+        return redirect('/?success=1&section=membresias')
     except Exception as e:
         return redirect('/?error=' + str(e) + '&section=membresias')
 
-@app.route('/edit_membresia/<int:id>', methods=['GET', 'POST'])
+@app.route('/edit_membresia/<id>', methods=['GET', 'POST'])
 def edit_membresia(id):
     """Editar membresía"""
     if request.method == 'POST':
         try:
-            conn = get_db_connection()
-            cursor = conn.cursor()
+            if db is None:
+                return redirect('/?error=Base de datos no disponible&section=membresias')
             
-            cursor.execute('''
-                UPDATE membresias 
-                SET nombre=?, plataforma=?, tipo=?, monto_mensual=?, monto_anual=?, 
-                    tarjeta_id=?, fecha_inicio=?, fecha_renovacion=?, notas=?
-                WHERE id=?
-            ''', (
-                request.form['nombre'],
-                request.form['plataforma'],
-                request.form['tipo'],
-                float(request.form['monto_mensual']),
-                float(request.form['monto_anual']) if request.form.get('monto_anual') else None,
-                request.form['tarjeta_id'] or None,
-                request.form['fecha_inicio'],
-                request.form['fecha_renovacion'],
-                request.form.get('notas'),
-                id
-            ))
+            update_data = {
+                'nombre': request.form['nombre'],
+                'plataforma': request.form['plataforma'],
+                'tipo': request.form['tipo'],
+                'monto_mensual': float(request.form['monto_mensual']),
+                'monto_anual': float(request.form['monto_anual']) if request.form.get('monto_anual') else None,
+                'tarjeta_id': request.form['tarjeta_id'] or None,
+                'fecha_inicio': request.form['fecha_inicio'],
+                'fecha_renovacion': request.form['fecha_renovacion'],
+                'notas': request.form.get('notas')
+            }
             
-            conn.commit()
-            conn.close()
+            try:
+                db.membresias.update_one({'_id': ObjectId(id)}, {'$set': update_data})
+            except:
+                return redirect('/?error=Membresía no encontrada&section=membresias')
             
             return redirect('/?success=membresia_editada&section=membresias')
         except Exception as e:
             return redirect('/?error=' + str(e) + '&section=membresias')
     
     # GET: Mostrar formulario de edición
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM membresias WHERE id = ?', (id,))
-    membresia = cursor.fetchone()
-    conn.close()
+    if db is None:
+        return redirect('/?error=Base de datos no disponible')
+    
+    try:
+        membresia = db.membresias.find_one({'_id': ObjectId(id)})
+    except:
+        membresia = None
     
     if not membresia:
         return redirect('/?error=Membresía no encontrada')
     
-    # Por ahora redirigimos a la página principal con un mensaje
-    # En una versión futura podríamos crear un formulario de edición
     return redirect('/?edit_membresia_id=' + str(id))
 
-@app.route('/delete_membresia/<int:id>')
+@app.route('/delete_membresia/<id>')
 def delete_membresia(id):
     """Eliminar membresía"""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('DELETE FROM membresias WHERE id = ?', (id,))
-        conn.commit()
-        conn.close()
+        if db is None:
+            return redirect('/?error=Base de datos no disponible&section=membresias')
+        
+        try:
+            db.membresias.delete_one({'_id': ObjectId(id)})
+        except:
+            return redirect('/?error=Membresía no encontrada&section=membresias')
         
         return redirect('/?success=membresia_eliminada&section=membresias')
     except Exception as e:
@@ -2428,80 +3988,79 @@ def delete_membresia(id):
 def add_tarjeta():
     """Agregar nueva tarjeta"""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        if db is None:
+            return redirect('/?error=Base de datos no disponible&section=tarjetas')
         
-        cursor.execute('''
-            INSERT INTO tarjetas (nombre, tipo, banco, limite_credito, fecha_vencimiento, color, icono)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            request.form['nombre'],
-            request.form['tipo'],
-            request.form.get('banco'),
-            float(request.form['limite_credito']) if request.form.get('limite_credito') else 0,
-            request.form.get('fecha_vencimiento'),
-            request.form.get('color', '#667eea'),
-            request.form.get('icono', '💳')
-        ))
+        tarjeta = {
+            'nombre': request.form['nombre'],
+            'tipo': request.form['tipo'],
+            'banco': request.form.get('banco'),
+            'limite_credito': float(request.form['limite_credito']) if request.form.get('limite_credito') else 0,
+            'fecha_vencimiento': request.form.get('fecha_vencimiento'),
+            'color': request.form.get('color', '#667eea'),
+            'icono': request.form.get('icono', '💳'),
+            'activa': True,
+            'created_at': datetime.now()
+        }
         
-        conn.commit()
-        conn.close()
+        db.tarjetas.insert_one(tarjeta)
         
         return redirect('/?success=tarjeta_agregada&section=tarjetas')
     except Exception as e:
         return redirect('/?error=' + str(e) + '&section=tarjetas')
 
-@app.route('/edit_tarjeta/<int:id>', methods=['GET', 'POST'])
+@app.route('/edit_tarjeta/<id>', methods=['GET', 'POST'])
 def edit_tarjeta(id):
     """Editar tarjeta"""
     if request.method == 'POST':
         try:
-            conn = get_db_connection()
-            cursor = conn.cursor()
+            if db is None:
+                return redirect('/?error=Base de datos no disponible&section=tarjetas')
             
-            cursor.execute('''
-                UPDATE tarjetas 
-                SET nombre=?, tipo=?, banco=?, limite_credito=?, fecha_vencimiento=?, color=?, icono=?
-                WHERE id=?
-            ''', (
-                request.form['nombre'],
-                request.form['tipo'],
-                request.form.get('banco'),
-                float(request.form['limite_credito']) if request.form.get('limite_credito') else 0,
-                request.form.get('fecha_vencimiento'),
-                request.form.get('color', '#667eea'),
-                request.form.get('icono', '💳'),
-                id
-            ))
+            update_data = {
+                'nombre': request.form['nombre'],
+                'tipo': request.form['tipo'],
+                'banco': request.form.get('banco'),
+                'limite_credito': float(request.form['limite_credito']) if request.form.get('limite_credito') else 0,
+                'fecha_vencimiento': request.form.get('fecha_vencimiento'),
+                'color': request.form.get('color', '#667eea'),
+                'icono': request.form.get('icono', '💳')
+            }
             
-            conn.commit()
-            conn.close()
+            try:
+                db.tarjetas.update_one({'_id': ObjectId(id)}, {'$set': update_data})
+            except:
+                return redirect('/?error=Tarjeta no encontrada&section=tarjetas')
             
             return redirect('/?success=tarjeta_editada&section=tarjetas')
         except Exception as e:
             return redirect('/?error=' + str(e) + '&section=tarjetas')
     
     # GET: Mostrar formulario de edición
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM tarjetas WHERE id = ?', (id,))
-    tarjeta = cursor.fetchone()
-    conn.close()
+    if db is None:
+        return redirect('/?error=Base de datos no disponible')
+    
+    try:
+        tarjeta = db.tarjetas.find_one({'_id': ObjectId(id)})
+    except:
+        tarjeta = None
     
     if not tarjeta:
         return redirect('/?error=Tarjeta no encontrada')
     
     return redirect('/?edit_tarjeta_id=' + str(id))
 
-@app.route('/delete_tarjeta/<int:id>')
+@app.route('/delete_tarjeta/<id>')
 def delete_tarjeta(id):
     """Eliminar tarjeta"""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('DELETE FROM tarjetas WHERE id = ?', (id,))
-        conn.commit()
-        conn.close()
+        if db is None:
+            return redirect('/?error=Base de datos no disponible&section=tarjetas')
+        
+        try:
+            db.tarjetas.delete_one({'_id': ObjectId(id)})
+        except:
+            return redirect('/?error=Tarjeta no encontrada&section=tarjetas')
         
         return redirect('/?success=tarjeta_eliminada&section=tarjetas')
     except Exception as e:
@@ -2513,74 +4072,73 @@ def delete_tarjeta(id):
 def add_presupuesto():
     """Agregar nuevo presupuesto"""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        if db is None:
+            return redirect('/?error=Base de datos no disponible&section=presupuestos')
         
-        cursor.execute('''
-            INSERT INTO presupuestos (mes, año, categoria_id, monto_planificado)
-            VALUES (?, ?, ?, ?)
-        ''', (
-            request.form['mes'],
-            int(request.form['año']),
-            request.form['categoria_id'],
-            float(request.form['monto_planificado'])
-        ))
+        presupuesto = {
+            'mes': request.form['mes'],
+            'año': int(request.form['año']),
+            'categoria_id': request.form['categoria_id'],
+            'monto_planificado': float(request.form['monto_planificado']),
+            'monto_gastado': 0,
+            'created_at': datetime.now()
+        }
         
-        conn.commit()
-        conn.close()
+        db.presupuestos.insert_one(presupuesto)
         
         return redirect('/?success=presupuesto_agregado&section=presupuestos')
     except Exception as e:
         return redirect('/?error=' + str(e) + '&section=presupuestos')
 
-@app.route('/edit_presupuesto/<int:id>', methods=['GET', 'POST'])
+@app.route('/edit_presupuesto/<id>', methods=['GET', 'POST'])
 def edit_presupuesto(id):
     """Editar presupuesto"""
     if request.method == 'POST':
         try:
-            conn = get_db_connection()
-            cursor = conn.cursor()
+            if db is None:
+                return redirect('/?error=Base de datos no disponible&section=presupuestos')
             
-            cursor.execute('''
-                UPDATE presupuestos 
-                SET mes=?, año=?, categoria_id=?, monto_planificado=?
-                WHERE id=?
-            ''', (
-                request.form['mes'],
-                int(request.form['año']),
-                request.form['categoria_id'],
-                float(request.form['monto_planificado']),
-                id
-            ))
+            update_data = {
+                'mes': request.form['mes'],
+                'año': int(request.form['año']),
+                'categoria_id': request.form['categoria_id'],
+                'monto_planificado': float(request.form['monto_planificado'])
+            }
             
-            conn.commit()
-            conn.close()
+            try:
+                db.presupuestos.update_one({'_id': ObjectId(id)}, {'$set': update_data})
+            except:
+                return redirect('/?error=Presupuesto no encontrado&section=presupuestos')
             
             return redirect('/?success=presupuesto_editado&section=presupuestos')
         except Exception as e:
             return redirect('/?error=' + str(e) + '&section=presupuestos')
     
     # GET: Mostrar formulario de edición
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM presupuestos WHERE id = ?', (id,))
-    presupuesto = cursor.fetchone()
-    conn.close()
+    if db is None:
+        return redirect('/?error=Base de datos no disponible')
+    
+    try:
+        presupuesto = db.presupuestos.find_one({'_id': ObjectId(id)})
+    except:
+        presupuesto = None
     
     if not presupuesto:
         return redirect('/?error=Presupuesto no encontrado')
     
     return redirect('/?edit_presupuesto_id=' + str(id))
 
-@app.route('/delete_presupuesto/<int:id>')
+@app.route('/delete_presupuesto/<id>')
 def delete_presupuesto(id):
     """Eliminar presupuesto"""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('DELETE FROM presupuestos WHERE id = ?', (id,))
-        conn.commit()
-        conn.close()
+        if db is None:
+            return redirect('/?error=Base de datos no disponible&section=presupuestos')
+        
+        try:
+            db.presupuestos.delete_one({'_id': ObjectId(id)})
+        except:
+            return redirect('/?error=Presupuesto no encontrado&section=presupuestos')
         
         return redirect('/?success=presupuesto_eliminado&section=presupuestos')
     except Exception as e:
@@ -2592,95 +4150,95 @@ def delete_presupuesto(id):
 def add_recordatorio():
     """Agregar nuevo recordatorio"""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        if db is None:
+            return redirect('/?error=Base de datos no disponible&section=recordatorios')
         
-        cursor.execute('''
-            INSERT INTO recordatorios (titulo, descripcion, monto, fecha_vencimiento, tarjeta_id, categoria_id, prioridad)
-            VALUES (?, ?, ?, ?, ?, ?, ?)
-        ''', (
-            request.form['titulo'],
-            request.form.get('descripcion'),
-            float(request.form['monto']),
-            request.form['fecha_vencimiento'],
-            request.form['tarjeta_id'] or None,
-            request.form['categoria_id'] or None,
-            request.form.get('prioridad', 'normal')
-        ))
+        recordatorio = {
+            'titulo': request.form['titulo'],
+            'descripcion': request.form.get('descripcion'),
+            'monto': float(request.form['monto']),
+            'fecha_vencimiento': request.form['fecha_vencimiento'],
+            'tarjeta_id': request.form['tarjeta_id'] or None,
+            'categoria_id': request.form['categoria_id'] or None,
+            'estado': 'pendiente',
+            'prioridad': request.form.get('prioridad', 'normal'),
+            'created_at': datetime.now()
+        }
         
-        conn.commit()
-        conn.close()
+        db.recordatorios.insert_one(recordatorio)
         
         return redirect('/?success=recordatorio_agregado&section=recordatorios')
     except Exception as e:
         return redirect('/?error=' + str(e) + '&section=recordatorios')
 
-@app.route('/edit_recordatorio/<int:id>', methods=['GET', 'POST'])
+@app.route('/edit_recordatorio/<id>', methods=['GET', 'POST'])
 def edit_recordatorio(id):
     """Editar recordatorio"""
     if request.method == 'POST':
         try:
-            conn = get_db_connection()
-            cursor = conn.cursor()
+            if db is None:
+                return redirect('/?error=Base de datos no disponible&section=recordatorios')
             
-            cursor.execute('''
-                UPDATE recordatorios 
-                SET titulo=?, descripcion=?, monto=?, fecha_vencimiento=?, 
-                    tarjeta_id=?, categoria_id=?, prioridad=?
-                WHERE id=?
-            ''', (
-                request.form['titulo'],
-                request.form.get('descripcion'),
-                float(request.form['monto']),
-                request.form['fecha_vencimiento'],
-                request.form['tarjeta_id'] or None,
-                request.form['categoria_id'] or None,
-                request.form.get('prioridad', 'normal'),
-                id
-            ))
+            update_data = {
+                'titulo': request.form['titulo'],
+                'descripcion': request.form.get('descripcion'),
+                'monto': float(request.form['monto']),
+                'fecha_vencimiento': request.form['fecha_vencimiento'],
+                'tarjeta_id': request.form['tarjeta_id'] or None,
+                'categoria_id': request.form['categoria_id'] or None,
+                'prioridad': request.form.get('prioridad', 'normal')
+            }
             
-            conn.commit()
-            conn.close()
+            try:
+                db.recordatorios.update_one({'_id': ObjectId(id)}, {'$set': update_data})
+            except:
+                return redirect('/?error=Recordatorio no encontrado&section=recordatorios')
             
             return redirect('/?success=recordatorio_editado&section=recordatorios')
         except Exception as e:
             return redirect('/?error=' + str(e) + '&section=recordatorios')
     
     # GET: Mostrar formulario de edición
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM recordatorios WHERE id = ?', (id,))
-    recordatorio = cursor.fetchone()
-    conn.close()
+    if db is None:
+        return redirect('/?error=Base de datos no disponible')
+    
+    try:
+        recordatorio = db.recordatorios.find_one({'_id': ObjectId(id)})
+    except:
+        recordatorio = None
     
     if not recordatorio:
         return redirect('/?error=Recordatorio no encontrado')
     
     return redirect('/?edit_recordatorio_id=' + str(id))
 
-@app.route('/delete_recordatorio/<int:id>')
+@app.route('/delete_recordatorio/<id>')
 def delete_recordatorio(id):
     """Eliminar recordatorio"""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('DELETE FROM recordatorios WHERE id = ?', (id,))
-        conn.commit()
-        conn.close()
+        if db is None:
+            return redirect('/?error=Base de datos no disponible&section=recordatorios')
+        
+        try:
+            db.recordatorios.delete_one({'_id': ObjectId(id)})
+        except:
+            return redirect('/?error=Recordatorio no encontrado&section=recordatorios')
         
         return redirect('/?success=recordatorio_eliminado&section=recordatorios')
     except Exception as e:
         return redirect('/?error=' + str(e) + '&section=recordatorios')
 
-@app.route('/completar_recordatorio/<int:id>')
+@app.route('/completar_recordatorio/<id>')
 def completar_recordatorio(id):
     """Marcar recordatorio como completado"""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('UPDATE recordatorios SET estado = "completado" WHERE id = ?', (id,))
-        conn.commit()
-        conn.close()
+        if db is None:
+            return redirect('/?error=Base de datos no disponible&section=recordatorios')
+        
+        try:
+            db.recordatorios.update_one({'_id': ObjectId(id)}, {'$set': {'estado': 'completado'}})
+        except:
+            return redirect('/?error=Recordatorio no encontrado&section=recordatorios')
         
         return redirect('/?success=recordatorio_completado&section=recordatorios')
     except Exception as e:
@@ -2692,76 +4250,75 @@ def completar_recordatorio(id):
 def add_categoria():
     """Agregar nueva categoría"""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
+        if db is None:
+            return redirect('/?error=Base de datos no disponible&section=transactions')
         
-        cursor.execute('''
-            INSERT INTO categorias (nombre, tipo, color, icono, presupuesto_mensual)
-            VALUES (?, ?, ?, ?, ?)
-        ''', (
-            request.form['nombre'],
-            request.form['tipo'],
-            request.form.get('color', '#667eea'),
-            request.form.get('icono', '💰'),
-            float(request.form.get('presupuesto_mensual', 0))
-        ))
+        categoria = {
+            'nombre': request.form['nombre'],
+            'tipo': request.form['tipo'],
+            'color': request.form.get('color', '#667eea'),
+            'icono': request.form.get('icono', '💰'),
+            'presupuesto_mensual': float(request.form.get('presupuesto_mensual', 0)),
+            'activa': True,
+            'created_at': datetime.now()
+        }
         
-        conn.commit()
-        conn.close()
+        db.categorias.insert_one(categoria)
         
         return redirect('/?success=categoria_agregada&section=transactions')
     except Exception as e:
         return redirect('/?error=' + str(e) + '&section=transactions')
 
-@app.route('/edit_categoria/<int:id>', methods=['GET', 'POST'])
+@app.route('/edit_categoria/<id>', methods=['GET', 'POST'])
 def edit_categoria(id):
     """Editar categoría"""
     if request.method == 'POST':
         try:
-            conn = get_db_connection()
-            cursor = conn.cursor()
+            if db is None:
+                return redirect('/?error=Base de datos no disponible&section=transactions')
             
-            cursor.execute('''
-                UPDATE categorias 
-                SET nombre=?, tipo=?, color=?, icono=?, presupuesto_mensual=?
-                WHERE id=?
-            ''', (
-                request.form['nombre'],
-                request.form['tipo'],
-                request.form.get('color', '#667eea'),
-                request.form.get('icono', '💰'),
-                float(request.form.get('presupuesto_mensual', 0)),
-                id
-            ))
+            update_data = {
+                'nombre': request.form['nombre'],
+                'tipo': request.form['tipo'],
+                'color': request.form.get('color', '#667eea'),
+                'icono': request.form.get('icono', '💰'),
+                'presupuesto_mensual': float(request.form.get('presupuesto_mensual', 0))
+            }
             
-            conn.commit()
-            conn.close()
+            try:
+                db.categorias.update_one({'_id': ObjectId(id)}, {'$set': update_data})
+            except:
+                return redirect('/?error=Categoría no encontrada&section=transactions')
             
             return redirect('/?success=categoria_editada&section=transactions')
         except Exception as e:
             return redirect('/?error=' + str(e) + '&section=transactions')
     
     # GET: Mostrar formulario de edición
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute('SELECT * FROM categorias WHERE id = ?', (id,))
-    categoria = cursor.fetchone()
-    conn.close()
+    if db is None:
+        return redirect('/?error=Base de datos no disponible')
+    
+    try:
+        categoria = db.categorias.find_one({'_id': ObjectId(id)})
+    except:
+        categoria = None
     
     if not categoria:
         return redirect('/?error=Categoría no encontrada')
     
     return redirect('/?edit_categoria_id=' + str(id))
 
-@app.route('/delete_categoria/<int:id>')
+@app.route('/delete_categoria/<id>')
 def delete_categoria(id):
     """Eliminar categoría"""
     try:
-        conn = get_db_connection()
-        cursor = conn.cursor()
-        cursor.execute('DELETE FROM categorias WHERE id = ?', (id,))
-        conn.commit()
-        conn.close()
+        if db is None:
+            return redirect('/?error=Base de datos no disponible&section=transactions')
+        
+        try:
+            db.categorias.delete_one({'_id': ObjectId(id)})
+        except:
+            return redirect('/?error=Categoría no encontrada&section=transactions')
         
         return redirect('/?success=categoria_eliminada&section=transactions')
     except Exception as e:
@@ -2769,5 +4326,10 @@ def delete_categoria(id):
 
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 3000))
-    print(f"🚀 Iniciando aplicación de finanzas en puerto {port}")
-    app.run(host='0.0.0.0', port=port, debug=False)
+    print(f"[INFO] Iniciando aplicacion de finanzas en puerto {port}")
+    print(f"[INFO] Abre tu navegador en: http://localhost:{port}")
+    print(f"[INFO] Presiona Ctrl+C para detener")
+    try:
+        app.run(host='0.0.0.0', port=port, debug=False)
+    except KeyboardInterrupt:
+        print(f"\n[INFO] Aplicacion detenida")

@@ -1,81 +1,86 @@
-# WebApp boilerplate with React JS and Flask API
+# Finanzas Gatunas 🐱
 
-Build web applications using React.js for the front end and python/flask for your backend API.
+Aplicación web para gestión de finanzas personales y domésticas.
 
-- Documentation can be found here: https://4geeks.com/docs/start/react-flask-template
-- Here is a video on [how to use this template](https://www.loom.com/share/f37c6838b3f1496c95111e515e83dd9b)
-- Integrated with Pipenv for package managing.
-- Fast deployment to Render [in just a few steps here](https://4geeks.com/docs/start/deploy-to-render-com).
-- Use of .env file.
-- SQLAlchemy integration for database abstraction.
+## Características
 
-### 1) Installation:
+- Registro y autenticación de usuarios con verificación de email
+- Gestión de transacciones (ingresos y gastos)
+- Tarjetas de crédito/débito
+- Membresías y suscripciones
+- Presupuestos mensuales
+- Recordatorios de pagos
+- Compartir finanzas con otros usuarios
+- Gráficos y estadísticas
 
-> If you use Github Codespaces (recommended) or Gitpod this template will already come with Python, Node and the Posgres Database installed. If you are working locally make sure to install Python 3.10, Node 
+## Requisitos
 
-It is recomended to install the backend first, make sure you have Python 3.10, Pipenv and a database engine (Posgress recomended)
+- Python 3.11+ o Docker
+- MongoDB
 
-1. Install the python packages: `$ pipenv install`
-2. Create a .env file based on the .env.example: `$ cp .env.example .env`
-3. Install your database engine and create your database, depending on your database you have to create a DATABASE_URL variable with one of the possible values, make sure you replace the valudes with your database information:
+## Instalación
 
-| Engine    | DATABASE_URL                                        |
-| --------- | --------------------------------------------------- |
-| SQLite    | sqlite:////test.db                                  |
-| MySQL     | mysql://username:password@localhost:port/example    |
-| Postgress | postgres://username:password@localhost:5432/example |
+### Opción 1: Sin Docker
 
-4. Migrate the migrations: `$ pipenv run migrate` (skip if you have not made changes to the models on the `./src/api/models.py`)
-5. Run the migrations: `$ pipenv run upgrade`
-6. Run the application: `$ pipenv run start`
-
-> Note: Codespaces users can connect to psql by typing: `psql -h localhost -U gitpod example`
-
-### Undo a migration
-
-You are also able to undo a migration by running
-
-```sh
-$ pipenv run downgrade
+```bash
+pip install -r requirements.txt
 ```
 
-### Backend Populate Table Users
+### Opción 2: Con Docker
 
-To insert test users in the database execute the following command:
-
-```sh
-$ flask insert-test-users 5
+```bash
+docker build -t finanzas-gatunas .
 ```
 
-And you will see the following message:
+## Configuración
+
+Crear archivo `.env` con:
 
 ```
-  Creating test users
-  test_user1@test.com created.
-  test_user2@test.com created.
-  test_user3@test.com created.
-  test_user4@test.com created.
-  test_user5@test.com created.
-  Users created successfully!
+MONGODB_URI=mongodb://localhost:27017/
+MONGODB_DB_NAME=finanzas_gatunas
+SECRET_KEY=tu-secret-key-segura
+PORT=3000
+MAIL_SERVER=smtp.gmail.com
+MAIL_PORT=587
+MAIL_USE_TLS=True
+MAIL_USERNAME=tu_email@gmail.com
+MAIL_PASSWORD=tu_contraseña_de_aplicacion
+MAIL_DEFAULT_SENDER=tu_email@gmail.com
 ```
 
-### **Important note for the database and the data inside it**
+## Ejecución
 
-Every Github codespace environment will have **its own database**, so if you're working with more people eveyone will have a different database and different records inside it. This data **will be lost**, so don't spend too much time manually creating records for testing, instead, you can automate adding records to your database by editing ```commands.py``` file inside ```/src/api``` folder. Edit line 32 function ```insert_test_data``` to insert the data according to your model (use the function ```insert_test_users``` above as an example). Then, all you need to do is run ```pipenv run insert-test-data```.
+### Desarrollo local (sin Docker)
+```bash
+cd src
+python app.py
+```
 
-### Front-End Manual Installation:
+### Producción (con gunicorn)
+```bash
+gunicorn --bind 0.0.0.0:3000 wsgi:application
+```
 
--   Make sure you are using node version 20 and that you have already successfully installed and runned the backend.
+### Con Docker
+```bash
+# Opción 1: Solo aplicación
+docker run -d -p 3000:3000 --env-file .env finanzas-gatunas
 
-1. Install the packages: `$ npm install`
-2. Start coding! start the webpack dev server `$ npm run start`
+# Opción 2: Con docker-compose (incluye MongoDB)
+docker-compose up -d
+```
 
-## Publish your website!
+Ver `DOCKER.md` para más detalles sobre Docker.
 
-This boilerplate it's 100% read to deploy with Render.com and Heroku in a matter of minutes. Please read the [official documentation about it](https://4geeks.com/docs/start/deploy-to-render-com).
+## Despliegue en VPS
 
-### Contributors
+1. Instalar Docker y Docker Compose
+2. Clonar el repositorio
+3. Configurar variables de entorno en `.env`
+4. Ejecutar: `docker-compose up -d`
 
-This template was built as part of the 4Geeks Academy [Coding Bootcamp](https://4geeksacademy.com/us/coding-bootcamp) by [Alejandro Sanchez](https://twitter.com/alesanchezr) and many other contributors. Find out more about our [Full Stack Developer Course](https://4geeksacademy.com/us/coding-bootcamps/part-time-full-stack-developer), and [Data Science Bootcamp](https://4geeksacademy.com/us/coding-bootcamps/datascience-machine-learning).
+## Licencia
 
-You can find other templates and resources like this at the [school github page](https://github.com/4geeksacademy/).
+Propiedad de Levi Eduardo Villarreal Argueta
+

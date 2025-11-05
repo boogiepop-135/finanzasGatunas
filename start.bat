@@ -1,3 +1,0 @@
-@echo off
-echo 🚀 Iniciando aplicación Python...
-python start.py
