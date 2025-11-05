@@ -250,9 +250,16 @@ def generar_codigo_verificacion():
 def enviar_codigo_verificacion(email, codigo):
     """Enviar código de verificación por email"""
     try:
+        # Usar MAIL_DEFAULT_SENDER si está configurado, sino usar MAIL_USERNAME
+        sender = app.config.get('MAIL_DEFAULT_SENDER') or app.config.get('MAIL_USERNAME')
+        if not sender:
+            print(f"[WARNING] MAIL_USERNAME y MAIL_DEFAULT_SENDER no están configurados")
+            return False
+        
         msg = Message(
             subject='Código de Verificación - Finanzas Gatunas',
             recipients=[email],
+            sender=sender,
             html=f"""
             <html>
             <body style="font-family: Arial, sans-serif; padding: 20px;">
@@ -268,6 +275,7 @@ def enviar_codigo_verificacion(email, codigo):
             """
         )
         mail.send(msg)
+        print(f"[OK] Código de verificación enviado a {email} desde {sender}")
         return True
     except Exception as e:
         print(f"[ERROR] Error enviando email: {e}")
@@ -3266,11 +3274,16 @@ def register():
         db.codigos_verificacion.insert_one(codigo_doc)
         
         # Intentar enviar email (si no está configurado, mostrar código en consola)
-        if app.config.get('MAIL_USERNAME'):
-            enviar_codigo_verificacion(email, codigo)
-            mensaje = 'Se ha enviado un código de verificación a tu email'
+        mail_username = app.config.get('MAIL_USERNAME')
+        if mail_username:
+            if enviar_codigo_verificacion(email, codigo):
+                mensaje = 'Se ha enviado un código de verificación a tu email'
+            else:
+                # Si falla el envío, mostrar código en consola como fallback
+                print(f"[INFO] Código de verificación para {email}: {codigo}")
+                mensaje = f'Código de verificación (modo desarrollo - email no configurado): {codigo}'
         else:
-            print(f"[INFO] Código de verificación para {email}: {codigo}")
+            print(f"[INFO] Email no configurado. Código de verificación para {email}: {codigo}")
             mensaje = f'Código de verificación (modo desarrollo): {codigo}'
         
         # Guardar email en sesión para verificación
@@ -3374,11 +3387,15 @@ def resend_code():
         }
         db.codigos_verificacion.insert_one(codigo_doc)
         
-        if app.config.get('MAIL_USERNAME'):
-            enviar_codigo_verificacion(email, codigo)
-            mensaje = 'Código reenviado a tu email'
+        mail_username = app.config.get('MAIL_USERNAME')
+        if mail_username:
+            if enviar_codigo_verificacion(email, codigo):
+                mensaje = 'Código reenviado a tu email'
+            else:
+                print(f"[INFO] Nuevo código para {email}: {codigo}")
+                mensaje = f'Nuevo código (modo desarrollo - email no configurado): {codigo}'
         else:
-            print(f"[INFO] Nuevo código para {email}: {codigo}")
+            print(f"[INFO] Email no configurado. Nuevo código para {email}: {codigo}")
             mensaje = f'Nuevo código (modo desarrollo): {codigo}'
         
         return redirect(f'/verify_email?mensaje={mensaje}')
