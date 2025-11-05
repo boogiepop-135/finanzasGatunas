@@ -283,7 +283,7 @@ def verificar_permiso(usuario_id, accion='ver'):
         return True
     
     # Verificar si hay una invitación activa
-    if db:
+    if db is not None:
         invitacion = db.invitaciones.find_one({
             'usuario_invitado_id': str(current_user.id),
             'usuario_propietario_id': str(usuario_id),
@@ -617,7 +617,7 @@ def create_chart(transactions, chart_type='gastos_por_categoria'):
             meses.insert(0, fecha.strftime('%B %Y'))
             
             # Calcular balance del mes usando MongoDB
-            if db:
+            if db is not None:
                 inicio_mes = fecha.replace(day=1).strftime('%Y-%m-%d')
                 fin_mes = (fecha.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
                 fin_mes_str = fin_mes.strftime('%Y-%m-%d')
@@ -3673,7 +3673,7 @@ def home():
         invitaciones_pendientes = []
         invitaciones_enviadas = []
         invitaciones_aceptadas = []
-        if db:
+        if db is not None:
             try:
                 # Invitaciones recibidas pendientes
                 invitaciones_pendientes = list(db.invitaciones.find({
