@@ -219,13 +219,27 @@ def convert_mongo_to_dict(item):
     """Convertir documento MongoDB a diccionario con id como string"""
     if item is None:
         return None
-    doc = dict(item)
-    doc['id'] = str(doc.pop('_id'))
-    return doc
+    try:
+        doc = dict(item)
+        if '_id' in doc:
+            doc['id'] = str(doc.pop('_id'))
+        return doc
+    except Exception as e:
+        print(f"[ERROR] Error convirtiendo documento MongoDB: {e}")
+        return None
 
 def convert_list_to_dicts(items):
     """Convertir lista de documentos MongoDB a lista de diccionarios"""
-    return [convert_mongo_to_dict(item) for item in items]
+    resultado = []
+    for item in items:
+        try:
+            converted = convert_mongo_to_dict(item)
+            if converted:
+                resultado.append(converted)
+        except Exception as e:
+            print(f"[ERROR] Error convirtiendo lista MongoDB: {e}")
+            continue
+    return resultado
 
 # ===== FUNCIONES DE AUTENTICACIÓN Y VERIFICACIÓN =====
 
@@ -3625,107 +3639,148 @@ def remove_invitation(invitacion_id):
 @login_required
 def home():
     """Página principal con dashboard de finanzas"""
-    usuario_id = obtener_usuario_actual_id()
-    
-    # Obtener parámetros de filtro
-    filtros = {}
-    if request.args.get('filter_tipo'):
-        filtros['tipo'] = request.args.get('filter_tipo')
-    if request.args.get('filter_categoria'):
-        filtros['categoria_id'] = request.args.get('filter_categoria')
-    if request.args.get('filter_tarjeta'):
-        filtros['tarjeta_id'] = request.args.get('filter_tarjeta')
-    if request.args.get('filter_fecha_inicio'):
-        filtros['fecha_inicio'] = request.args.get('filter_fecha_inicio')
-    if request.args.get('filter_fecha_fin'):
-        filtros['fecha_fin'] = request.args.get('filter_fecha_fin')
-    if request.args.get('filter_descripcion'):
-        filtros['descripcion'] = request.args.get('filter_descripcion')
-    
-    # Obtener datos
-    balance = get_balance(usuario_id)
-    categorias = get_categories(usuario_id)
-    tarjetas = get_tarjetas(usuario_id)
-    membresias = get_membresias(usuario_id)
-    presupuestos = get_presupuestos(usuario_id=usuario_id)
-    recordatorios = get_recordatorios(usuario_id)
-    transacciones = get_transactions(filtros, usuario_id)
-    dashboard_stats = get_dashboard_stats(usuario_id)
-    
-    # Obtener invitaciones pendientes y aceptadas
-    invitaciones_pendientes = []
-    invitaciones_enviadas = []
-    invitaciones_aceptadas = []
-    if db:
-        # Invitaciones recibidas pendientes
-        invitaciones_pendientes = list(db.invitaciones.find({
-            'usuario_invitado_id': str(current_user.id),
-            'estado': 'pendiente'
-        }))
-        invitaciones_pendientes = convert_list_to_dicts(invitaciones_pendientes)
-        for inv in invitaciones_pendientes:
-            propietario = db.usuarios.find_one({'_id': ObjectId(inv['usuario_propietario_id'])})
-            if propietario:
-                inv['propietario_email'] = propietario.get('email')
-                inv['propietario_nombre'] = propietario.get('nombre')
+    try:
+        usuario_id = obtener_usuario_actual_id()
+        if not usuario_id:
+            return redirect('/login?error=Sesión inválida')
         
-        # Invitaciones enviadas por el usuario
-        invitaciones_enviadas = list(db.invitaciones.find({
-            'usuario_propietario_id': str(current_user.id)
-        }))
-        invitaciones_enviadas = convert_list_to_dicts(invitaciones_enviadas)
-        for inv in invitaciones_enviadas:
-            invitado = db.usuarios.find_one({'_id': ObjectId(inv['usuario_invitado_id'])})
-            if invitado:
-                inv['invitado_email'] = invitado.get('email')
-                inv['invitado_nombre'] = invitado.get('nombre')
+        # Obtener parámetros de filtro
+        filtros = {}
+        if request.args.get('filter_tipo'):
+            filtros['tipo'] = request.args.get('filter_tipo')
+        if request.args.get('filter_categoria'):
+            filtros['categoria_id'] = request.args.get('filter_categoria')
+        if request.args.get('filter_tarjeta'):
+            filtros['tarjeta_id'] = request.args.get('filter_tarjeta')
+        if request.args.get('filter_fecha_inicio'):
+            filtros['fecha_inicio'] = request.args.get('filter_fecha_inicio')
+        if request.args.get('filter_fecha_fin'):
+            filtros['fecha_fin'] = request.args.get('filter_fecha_fin')
+        if request.args.get('filter_descripcion'):
+            filtros['descripcion'] = request.args.get('filter_descripcion')
         
-        # Invitaciones aceptadas (usuarios que comparten finanzas conmigo)
-        invitaciones_aceptadas = list(db.invitaciones.find({
-            'usuario_invitado_id': str(current_user.id),
-            'estado': 'aceptada'
-        }))
-        invitaciones_aceptadas = convert_list_to_dicts(invitaciones_aceptadas)
-        for inv in invitaciones_aceptadas:
-            propietario = db.usuarios.find_one({'_id': ObjectId(inv['usuario_propietario_id'])})
-            if propietario:
-                inv['propietario_email'] = propietario.get('email')
-                inv['propietario_nombre'] = propietario.get('nombre')
-    
-    # Calcular total del filtro
-    total_filtrado = 0
-    filtros_aplicados = None
-    if filtros:
-        filtros_aplicados = filtros
-        for t in transacciones:
-            if filtros.get('tipo') == 'ingreso':
-                total_filtrado += t['monto']
-            elif filtros.get('tipo') == 'gasto':
-                total_filtrado += t['monto']
-            else:
-                total_filtrado += t['monto'] if t['tipo'] == 'ingreso' else -t['monto']
-    
-    # Crear gráfica
-    chart_type = request.args.get('chart_type', 'gastos_por_categoria')
-    chart_data = create_chart(transacciones, chart_type)
-    
-    return render_template_string(MAIN_PAGE_HTML,
-                                balance=balance,
-                                categorias=categorias,
-                                tarjetas=tarjetas,
-                                membresias=membresias,
-                                presupuestos=presupuestos,
-                                recordatorios=recordatorios,
-                                transacciones=transacciones,
-                                filtros_aplicados=filtros_aplicados,
-                                total_filtrado=total_filtrado,
-                                chart_data=chart_data,
-                                dashboard_stats=dashboard_stats,
-                                invitaciones_pendientes=invitaciones_pendientes,
-                                invitaciones_enviadas=invitaciones_enviadas,
-                                invitaciones_aceptadas=invitaciones_aceptadas,
-                                usuario_actual=current_user,
-                                today=datetime.now().strftime('%Y-%m-%d'))
+        # Obtener datos
+        balance = get_balance(usuario_id)
+        categorias = get_categories(usuario_id)
+        tarjetas = get_tarjetas(usuario_id)
+        membresias = get_membresias(usuario_id)
+        presupuestos = get_presupuestos(usuario_id=usuario_id)
+        recordatorios = get_recordatorios(usuario_id)
+        transacciones = get_transactions(filtros, usuario_id)
+        dashboard_stats = get_dashboard_stats(usuario_id)
+        
+        # Obtener invitaciones pendientes y aceptadas
+        invitaciones_pendientes = []
+        invitaciones_enviadas = []
+        invitaciones_aceptadas = []
+        if db:
+            try:
+                # Invitaciones recibidas pendientes
+                invitaciones_pendientes = list(db.invitaciones.find({
+                    'usuario_invitado_id': str(current_user.id),
+                    'estado': 'pendiente'
+                }))
+                invitaciones_pendientes = convert_list_to_dicts(invitaciones_pendientes)
+                for inv in invitaciones_pendientes:
+                    try:
+                        propietario_id = inv.get('usuario_propietario_id')
+                        if propietario_id:
+                            propietario = db.usuarios.find_one({'_id': ObjectId(propietario_id)})
+                            if propietario:
+                                inv['propietario_email'] = propietario.get('email')
+                                inv['propietario_nombre'] = propietario.get('nombre')
+                    except Exception as e:
+                        print(f"[ERROR] Error procesando invitación pendiente: {e}")
+                        continue
+                
+                # Invitaciones enviadas por el usuario
+                invitaciones_enviadas = list(db.invitaciones.find({
+                    'usuario_propietario_id': str(current_user.id)
+                }))
+                invitaciones_enviadas = convert_list_to_dicts(invitaciones_enviadas)
+                for inv in invitaciones_enviadas:
+                    try:
+                        # Puede que no tenga usuario_invitado_id si aún no se registró
+                        invitado_id = inv.get('usuario_invitado_id')
+                        if invitado_id:
+                            invitado = db.usuarios.find_one({'_id': ObjectId(invitado_id)})
+                            if invitado:
+                                inv['invitado_email'] = invitado.get('email')
+                                inv['invitado_nombre'] = invitado.get('nombre')
+                        else:
+                            # Si no tiene usuario_invitado_id, usar email_invitado
+                            inv['invitado_email'] = inv.get('email_invitado', 'Pendiente')
+                            inv['invitado_nombre'] = 'Pendiente'
+                    except Exception as e:
+                        print(f"[ERROR] Error procesando invitación enviada: {e}")
+                        # Si falla, usar email_invitado si existe
+                        if 'email_invitado' in inv:
+                            inv['invitado_email'] = inv['email_invitado']
+                            inv['invitado_nombre'] = 'Pendiente'
+                        continue
+                
+                # Invitaciones aceptadas (usuarios que comparten finanzas conmigo)
+                invitaciones_aceptadas = list(db.invitaciones.find({
+                    'usuario_invitado_id': str(current_user.id),
+                    'estado': 'aceptada'
+                }))
+                invitaciones_aceptadas = convert_list_to_dicts(invitaciones_aceptadas)
+                for inv in invitaciones_aceptadas:
+                    try:
+                        propietario_id = inv.get('usuario_propietario_id')
+                        if propietario_id:
+                            propietario = db.usuarios.find_one({'_id': ObjectId(propietario_id)})
+                            if propietario:
+                                inv['propietario_email'] = propietario.get('email')
+                                inv['propietario_nombre'] = propietario.get('nombre')
+                    except Exception as e:
+                        print(f"[ERROR] Error procesando invitación aceptada: {e}")
+                        continue
+            except Exception as e:
+                print(f"[ERROR] Error obteniendo invitaciones: {e}")
+        
+        # Calcular total del filtro
+        total_filtrado = 0
+        filtros_aplicados = None
+        if filtros:
+            filtros_aplicados = filtros
+            try:
+                for t in transacciones:
+                    if filtros.get('tipo') == 'ingreso':
+                        total_filtrado += t.get('monto', 0)
+                    elif filtros.get('tipo') == 'gasto':
+                        total_filtrado += t.get('monto', 0)
+                    else:
+                        total_filtrado += t.get('monto', 0) if t.get('tipo') == 'ingreso' else -t.get('monto', 0)
+            except Exception as e:
+                print(f"[ERROR] Error calculando total filtrado: {e}")
+        
+        # Crear gráfica
+        chart_type = request.args.get('chart_type', 'gastos_por_categoria')
+        chart_data = create_chart(transacciones, chart_type)
+        
+        return render_template_string(MAIN_PAGE_HTML,
+                                    balance=balance,
+                                    categorias=categorias,
+                                    tarjetas=tarjetas,
+                                    membresias=membresias,
+                                    presupuestos=presupuestos,
+                                    recordatorios=recordatorios,
+                                    transacciones=transacciones,
+                                    filtros_aplicados=filtros_aplicados,
+                                    total_filtrado=total_filtrado,
+                                    chart_data=chart_data,
+                                    dashboard_stats=dashboard_stats,
+                                    invitaciones_pendientes=invitaciones_pendientes,
+                                    invitaciones_enviadas=invitaciones_enviadas,
+                                    invitaciones_aceptadas=invitaciones_aceptadas,
+                                    usuario_actual=current_user,
+                                    today=datetime.now().strftime('%Y-%m-%d'))
+    except Exception as e:
+        print(f"[ERROR] Error en home(): {e}")
+        import traceback
+        traceback.print_exc()
+        return f"<h1>Error interno del servidor</h1><p>{str(e)}</p><pre>{traceback.format_exc()}</pre>", 500
 
 @app.route('/add_transaction', methods=['POST'])
 @login_required
