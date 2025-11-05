@@ -4379,6 +4379,22 @@ def delete_categoria(id):
     except Exception as e:
         return redirect('/?error=' + str(e) + '&section=transactions')
 
+# ===== HANDLER DE ERRORES GLOBAL =====
+
+@app.errorhandler(500)
+def internal_error(error):
+    """Manejar errores internos del servidor"""
+    import traceback
+    error_info = traceback.format_exc()
+    print(f"[ERROR] Error 500: {error}")
+    print(f"[ERROR] Traceback:\n{error_info}")
+    return f"<h1>Error interno del servidor</h1><p>Ocurrió un error inesperado. Por favor inténtalo de nuevo.</p><pre>{error_info}</pre>", 500
+
+@app.errorhandler(404)
+def not_found(error):
+    """Manejar errores 404"""
+    return "<h1>Página no encontrada</h1><p>La página que buscas no existe.</p>", 404
+
 if __name__ == '__main__':
     port = int(os.environ.get('PORT', 3000))
     print(f"[INFO] Iniciando aplicacion de finanzas en puerto {port}")
