@@ -3362,6 +3362,8 @@ MAIN_PAGE_HTML = """
                 });
             }
         });
+    </script>
+
     <!-- ===== WIDGET CHAT IA - GATITO FINANCIERO ===== -->
     <style>
         /* === Botón flotante IA === */
