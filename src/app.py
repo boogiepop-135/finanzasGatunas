@@ -5,6 +5,8 @@ Aplicación de Finanzas del Hogar - Finanzas Gatunas
 from flask import Flask, jsonify, render_template_string, request, redirect, url_for, session, flash
 from flask_login import LoginManager, UserMixin, login_user, login_required, logout_user, current_user
 from flask_mail import Mail, Message
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 from werkzeug.security import generate_password_hash, check_password_hash
 from itsdangerous import URLSafeTimedSerializer
 import os
@@ -25,11 +27,45 @@ from dotenv import load_dotenv
 import random
 import string
 
+# ===== Módulos nuevos: AI + Telegram + Scheduler =====
+try:
+    from ai_advisor import get_ai_advice
+    AI_AVAILABLE = True
+    print("[OK] Módulo de IA (Gemini) cargado")
+except ImportError as e:
+    AI_AVAILABLE = False
+    print(f"[WARNING] Módulo de IA no disponible: {e}")
+    def get_ai_advice(msg, ctx):
+        return "⚠️ El asesor IA no está disponible en este momento."
+
+try:
+    from telegram_bot import process_update, send_message as tg_send
+    TELEGRAM_AVAILABLE = True
+    print("[OK] Módulo de Telegram cargado")
+except ImportError as e:
+    TELEGRAM_AVAILABLE = False
+    print(f"[WARNING] Módulo de Telegram no disponible: {e}")
+
+try:
+    from scheduler import create_scheduler
+    SCHEDULER_AVAILABLE = True
+except ImportError as e:
+    SCHEDULER_AVAILABLE = False
+    print(f"[WARNING] Módulo scheduler no disponible: {e}")
+
 # Cargar variables de entorno
 load_dotenv()
 
 app = Flask(__name__)
 app.secret_key = os.environ.get('SECRET_KEY', 'finanzas-gatunas-secret-key')
+
+# ===== Rate Limiting =====
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    default_limits=[],
+    storage_uri="memory://",
+)
 
 # Configuración de Flask-Login
 login_manager = LoginManager()
@@ -90,130 +126,70 @@ def load_user(user_id):
     return None
 
 def init_db():
-    """Inicializar la base de datos con datos por defecto"""
+    """Inicializar la base de datos (solo crea índices, sin datos globales compartidos)."""
     if db is None:
         return
-    
-    # Colecciones ya están creadas automáticamente en MongoDB
-    # Solo necesitamos insertar datos por defecto si no existen
-    
-    # Insertar tarjetas por defecto
-    if db.tarjetas.count_documents({}) == 0:
+    # Índices útiles
+    try:
+        db.transacciones.create_index([('usuario_id', 1), ('fecha', -1)])
+        db.metas.create_index([('usuario_id', 1)])
+        db.codigos_verificacion.create_index('expiracion', expireAfterSeconds=0)
+        db.password_resets.create_index('expires_at', expireAfterSeconds=0)
+        print("[OK] Índices MongoDB creados")
+    except Exception as e:
+        print(f"[WARNING] Error creando índices: {e}")
+
+
+def init_user_data(usuario_id: str):
+    """Crear tarjetas y categorías por defecto para un nuevo usuario."""
+    if db is None:
+        return
+    # Solo crear si el usuario no tiene datos aún
+    if db.tarjetas.count_documents({'usuario_id': usuario_id}) == 0:
         tarjetas_default = [
-            {
-                'nombre': 'Efectivo',
-                'tipo': 'efectivo',
-                'banco': 'N/A',
-                'limite_credito': 0,
-                'fecha_vencimiento': None,
-                'color': '#4CAF50',
-                'icono': '💵',
-                'activa': True,
-                'created_at': datetime.now()
-            },
-            {
-                'nombre': 'Débito Principal',
-                'tipo': 'debito',
-                'banco': 'Banco Local',
-                'limite_credito': 0,
-                'fecha_vencimiento': None,
-                'color': '#2196F3',
-                'icono': '🏦',
-                'activa': True,
-                'created_at': datetime.now()
-            },
-            {
-                'nombre': 'Crédito Visa',
-                'tipo': 'credito',
-                'banco': 'Banco Principal',
-                'limite_credito': 50000,
-                'fecha_vencimiento': '2026-12-31',
-                'color': '#9C27B0',
-                'icono': '💳',
-                'activa': True,
-                'created_at': datetime.now()
-            },
-            {
-                'nombre': 'Crédito Mastercard',
-                'tipo': 'credito',
-                'banco': 'Banco Secundario',
-                'limite_credito': 30000,
-                'fecha_vencimiento': '2026-06-30',
-                'color': '#FF9800',
-                'icono': '💳',
-                'activa': True,
-                'created_at': datetime.now()
-            }
+            {'nombre': 'Efectivo', 'tipo': 'efectivo', 'banco': 'N/A',
+             'limite_credito': 0, 'fecha_vencimiento': None, 'color': '#4CAF50',
+             'icono': '💵', 'activa': True, 'usuario_id': usuario_id, 'created_at': datetime.now()},
+            {'nombre': 'Débito Principal', 'tipo': 'debito', 'banco': 'Banco Local',
+             'limite_credito': 0, 'fecha_vencimiento': None, 'color': '#2196F3',
+             'icono': '🏦', 'activa': True, 'usuario_id': usuario_id, 'created_at': datetime.now()},
+            {'nombre': 'Crédito Visa', 'tipo': 'credito', 'banco': 'Banco Principal',
+             'limite_credito': 50000, 'fecha_vencimiento': '2027-12-31', 'color': '#9C27B0',
+             'icono': '💳', 'activa': True, 'usuario_id': usuario_id, 'created_at': datetime.now()},
         ]
         db.tarjetas.insert_many(tarjetas_default)
-    
-    # Insertar categorías por defecto
-    if db.categorias.count_documents({}) == 0:
+
+    if db.categorias.count_documents({'usuario_id': usuario_id}) == 0:
         categorias_default = [
-            {'nombre': 'Ingresos', 'tipo': 'ingreso', 'color': '#4CAF50', 'icono': '💰', 'presupuesto_mensual': 0, 'activa': True, 'created_at': datetime.now()},
-            {'nombre': 'Salario', 'tipo': 'ingreso', 'color': '#4CAF50', 'icono': '💼', 'presupuesto_mensual': 0, 'activa': True, 'created_at': datetime.now()},
-            {'nombre': 'Freelance', 'tipo': 'ingreso', 'color': '#4CAF50', 'icono': '💻', 'presupuesto_mensual': 0, 'activa': True, 'created_at': datetime.now()},
-            {'nombre': 'Inversiones', 'tipo': 'ingreso', 'color': '#4CAF50', 'icono': '📈', 'presupuesto_mensual': 0, 'activa': True, 'created_at': datetime.now()},
-            {'nombre': 'Alimentación', 'tipo': 'gasto', 'color': '#FF5722', 'icono': '🍽️', 'presupuesto_mensual': 0, 'activa': True, 'created_at': datetime.now()},
-            {'nombre': 'Transporte', 'tipo': 'gasto', 'color': '#2196F3', 'icono': '🚗', 'presupuesto_mensual': 0, 'activa': True, 'created_at': datetime.now()},
-            {'nombre': 'Vivienda', 'tipo': 'gasto', 'color': '#9C27B0', 'icono': '🏠', 'presupuesto_mensual': 0, 'activa': True, 'created_at': datetime.now()},
-            {'nombre': 'Entretenimiento', 'tipo': 'gasto', 'color': '#FF9800', 'icono': '🎮', 'presupuesto_mensual': 0, 'activa': True, 'created_at': datetime.now()},
-            {'nombre': 'Salud', 'tipo': 'gasto', 'color': '#E91E63', 'icono': '🏥', 'presupuesto_mensual': 0, 'activa': True, 'created_at': datetime.now()},
-            {'nombre': 'Educación', 'tipo': 'gasto', 'color': '#607D8B', 'icono': '📚', 'presupuesto_mensual': 0, 'activa': True, 'created_at': datetime.now()},
-            {'nombre': 'Ropa', 'tipo': 'gasto', 'color': '#795548', 'icono': '👕', 'presupuesto_mensual': 0, 'activa': True, 'created_at': datetime.now()},
-            {'nombre': 'Membresías', 'tipo': 'gasto', 'color': '#FF5722', 'icono': '🎫', 'presupuesto_mensual': 0, 'activa': True, 'created_at': datetime.now()},
-            {'nombre': 'Servicios', 'tipo': 'gasto', 'color': '#3F51B5', 'icono': '🔌', 'presupuesto_mensual': 0, 'activa': True, 'created_at': datetime.now()},
-            {'nombre': 'Otros', 'tipo': 'gasto', 'color': '#9E9E9E', 'icono': '📦', 'presupuesto_mensual': 0, 'activa': True, 'created_at': datetime.now()}
+            {'nombre': 'Salario', 'tipo': 'ingreso', 'color': '#4CAF50', 'icono': '💼',
+             'presupuesto_mensual': 0, 'activa': True, 'usuario_id': usuario_id, 'created_at': datetime.now()},
+            {'nombre': 'Freelance', 'tipo': 'ingreso', 'color': '#66BB6A', 'icono': '💻',
+             'presupuesto_mensual': 0, 'activa': True, 'usuario_id': usuario_id, 'created_at': datetime.now()},
+            {'nombre': 'Inversiones', 'tipo': 'ingreso', 'color': '#26A69A', 'icono': '📈',
+             'presupuesto_mensual': 0, 'activa': True, 'usuario_id': usuario_id, 'created_at': datetime.now()},
+            {'nombre': 'Alimentación', 'tipo': 'gasto', 'color': '#FF5722', 'icono': '🍽️',
+             'presupuesto_mensual': 0, 'activa': True, 'usuario_id': usuario_id, 'created_at': datetime.now()},
+            {'nombre': 'Transporte', 'tipo': 'gasto', 'color': '#2196F3', 'icono': '🚗',
+             'presupuesto_mensual': 0, 'activa': True, 'usuario_id': usuario_id, 'created_at': datetime.now()},
+            {'nombre': 'Vivienda', 'tipo': 'gasto', 'color': '#9C27B0', 'icono': '🏠',
+             'presupuesto_mensual': 0, 'activa': True, 'usuario_id': usuario_id, 'created_at': datetime.now()},
+            {'nombre': 'Entretenimiento', 'tipo': 'gasto', 'color': '#FF9800', 'icono': '🎮',
+             'presupuesto_mensual': 0, 'activa': True, 'usuario_id': usuario_id, 'created_at': datetime.now()},
+            {'nombre': 'Salud', 'tipo': 'gasto', 'color': '#E91E63', 'icono': '🏥',
+             'presupuesto_mensual': 0, 'activa': True, 'usuario_id': usuario_id, 'created_at': datetime.now()},
+            {'nombre': 'Educación', 'tipo': 'gasto', 'color': '#607D8B', 'icono': '📚',
+             'presupuesto_mensual': 0, 'activa': True, 'usuario_id': usuario_id, 'created_at': datetime.now()},
+            {'nombre': 'Ropa', 'tipo': 'gasto', 'color': '#795548', 'icono': '👕',
+             'presupuesto_mensual': 0, 'activa': True, 'usuario_id': usuario_id, 'created_at': datetime.now()},
+            {'nombre': 'Membresías', 'tipo': 'gasto', 'color': '#FF5722', 'icono': '🎫',
+             'presupuesto_mensual': 0, 'activa': True, 'usuario_id': usuario_id, 'created_at': datetime.now()},
+            {'nombre': 'Servicios', 'tipo': 'gasto', 'color': '#3F51B5', 'icono': '🔌',
+             'presupuesto_mensual': 0, 'activa': True, 'usuario_id': usuario_id, 'created_at': datetime.now()},
+            {'nombre': 'Otros', 'tipo': 'gasto', 'color': '#9E9E9E', 'icono': '📦',
+             'presupuesto_mensual': 0, 'activa': True, 'usuario_id': usuario_id, 'created_at': datetime.now()},
         ]
         db.categorias.insert_many(categorias_default)
-    
-    # Insertar membresías de ejemplo
-    if db.membresias.count_documents({}) == 0:
-        # Obtener IDs de tarjetas
-        tarjeta_ids = list(db.tarjetas.find({}, {'_id': 1}))
-        if len(tarjeta_ids) >= 3:
-            membresias_default = [
-                {
-                    'nombre': 'Netflix',
-                    'plataforma': 'Netflix',
-                    'tipo': 'streaming',
-                    'monto_mensual': 15.99,
-                    'monto_anual': 191.88,
-                    'tarjeta_id': str(tarjeta_ids[2]['_id']),
-                    'fecha_inicio': '2024-01-01',
-                    'fecha_renovacion': '2024-02-01',
-                    'estado': 'activa',
-                    'notas': None,
-                    'created_at': datetime.now()
-                },
-                {
-                    'nombre': 'Spotify',
-                    'plataforma': 'Spotify',
-                    'tipo': 'musica',
-                    'monto_mensual': 9.99,
-                    'monto_anual': 119.88,
-                    'tarjeta_id': str(tarjeta_ids[2]['_id']),
-                    'fecha_inicio': '2024-01-01',
-                    'fecha_renovacion': '2024-02-01',
-                    'estado': 'activa',
-                    'notas': None,
-                    'created_at': datetime.now()
-                },
-                {
-                    'nombre': 'Gym',
-                    'plataforma': 'Local Gym',
-                    'tipo': 'fitness',
-                    'monto_mensual': 29.99,
-                    'monto_anual': 359.88,
-                    'tarjeta_id': str(tarjeta_ids[1]['_id']),
-                    'fecha_inicio': '2024-01-01',
-                    'fecha_renovacion': '2024-02-01',
-                    'estado': 'activa',
-                    'notas': None,
-                    'created_at': datetime.now()
-                }
-            ]
-            db.membresias.insert_many(membresias_default)
+    print(f"[OK] Datos iniciales creados para usuario {usuario_id}")
 
 def convert_mongo_to_dict(item):
     """Convertir documento MongoDB a diccionario con id como string"""
@@ -416,15 +392,15 @@ def get_recordatorios(usuario_id=None):
         result.append(rec_dict)
     return result
 
-def get_transactions(filtros=None, usuario_id=None):
-    """Obtener transacciones con filtros del usuario"""
+def get_transactions(filtros=None, usuario_id=None, page=1, per_page=50):
+    """Obtener transacciones con filtros y paginación del usuario"""
     if db is None:
         return []
     query = {}
-    
+
     if usuario_id:
         query['usuario_id'] = usuario_id
-    
+
     if filtros:
         if filtros.get('tipo'):
             query['tipo'] = filtros['tipo']
@@ -441,8 +417,14 @@ def get_transactions(filtros=None, usuario_id=None):
                 query['fecha'] = {'$lte': filtros['fecha_fin']}
         if filtros.get('descripcion'):
             query['descripcion'] = {'$regex': filtros['descripcion'], '$options': 'i'}
-    
-    transacciones = list(db.transacciones.find(query).sort([('fecha', -1), ('created_at', -1)]))
+
+    skip = (page - 1) * per_page
+    transacciones = list(
+        db.transacciones.find(query)
+        .sort([('fecha', -1), ('created_at', -1)])
+        .skip(skip)
+        .limit(per_page)
+    )
     result = []
     for trans in transacciones:
         trans_dict = convert_mongo_to_dict(trans)
@@ -590,7 +572,7 @@ def get_categories(usuario_id=None):
     categorias = list(db.categorias.find(query).sort('nombre', 1))
     return convert_list_to_dicts(categorias)
 
-def create_chart(transactions, chart_type='gastos_por_categoria'):
+def create_chart(transactions, chart_type='gastos_por_categoria', usuario_id=None):
     """Crear gráficas"""
     if not transactions:
         return None
@@ -630,8 +612,11 @@ def create_chart(transactions, chart_type='gastos_por_categoria'):
                 fin_mes = (fecha.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
                 fin_mes_str = fin_mes.strftime('%Y-%m-%d')
                 
+                match_q = {'fecha': {'$gte': inicio_mes, '$lte': fin_mes_str}}
+                if usuario_id:
+                    match_q['usuario_id'] = usuario_id
                 balance_cursor = db.transacciones.aggregate([
-                    {'$match': {'fecha': {'$gte': inicio_mes, '$lte': fin_mes_str}}},
+                    {'$match': match_q},
                     {'$group': {
                         '_id': None,
                         'balance': {
@@ -660,12 +645,107 @@ def create_chart(transactions, chart_type='gastos_por_categoria'):
     img = StringIO()
     fig.savefig(img, format='png', bbox_inches='tight', dpi=100)
     img.seek(0)
-    img_base64 = base64.b64encode(img.getvalue()).decode()
-    
+    img_base64 = base64.b64encode(img.getvalue().encode() if isinstance(img.getvalue(), str) else img.getvalue()).decode()
+
     return img_base64
+
+
+# ===== HELPERS NUEVOS =====
+
+MONEDAS = {'MXN': '$', 'USD': 'US$', 'EUR': '€', 'COP': 'COP$', 'ARS': 'AR$', 'BRL': 'R$'}
+
+def get_simbolo_moneda(moneda: str = 'MXN') -> str:
+    return MONEDAS.get(moneda, '$')
+
+
+def log_accion(usuario_id: str, accion: str, coleccion: str, doc_id: str, datos_anteriores: dict = None):
+    """Registrar una acción de auditoría en la base de datos."""
+    if db is None:
+        return
+    try:
+        db.audit_log.insert_one({
+            'usuario_id': usuario_id,
+            'accion': accion,           # 'edit' | 'delete' | 'create'
+            'coleccion': coleccion,
+            'doc_id': str(doc_id),
+            'datos_anteriores': datos_anteriores,
+            'created_at': datetime.now()
+        })
+    except Exception as e:
+        print(f"[WARNING] Error en audit log: {e}")
+
+
+def get_metas(usuario_id=None):
+    """Obtener metas de ahorro del usuario."""
+    if db is None:
+        return []
+    query = {}
+    if usuario_id:
+        query['usuario_id'] = usuario_id
+    metas = list(db.metas.find(query).sort('fecha_limite', 1))
+    result = []
+    for m in metas:
+        m_dict = convert_mongo_to_dict(m)
+        if m_dict:
+            objetivo = float(m_dict.get('monto_objetivo', 0) or 0)
+            actual = float(m_dict.get('monto_actual', 0) or 0)
+            m_dict['porcentaje'] = round((actual / objetivo * 100) if objetivo > 0 else 0, 1)
+            result.append(m_dict)
+    return result
+
+
+def count_transactions(filtros=None, usuario_id=None) -> int:
+    """Contar transacciones para paginación."""
+    if db is None:
+        return 0
+    query = {}
+    if usuario_id:
+        query['usuario_id'] = usuario_id
+    if filtros:
+        if filtros.get('tipo'):
+            query['tipo'] = filtros['tipo']
+        if filtros.get('categoria_id'):
+            query['categoria_id'] = filtros['categoria_id']
+        if filtros.get('tarjeta_id'):
+            query['tarjeta_id'] = filtros['tarjeta_id']
+        if filtros.get('fecha_inicio'):
+            query['fecha'] = {'$gte': filtros['fecha_inicio']}
+        if filtros.get('fecha_fin'):
+            if 'fecha' in query:
+                query['fecha']['$lte'] = filtros['fecha_fin']
+            else:
+                query['fecha'] = {'$lte': filtros['fecha_fin']}
+        if filtros.get('descripcion'):
+            query['descripcion'] = {'$regex': filtros['descripcion'], '$options': 'i'}
+    return db.transacciones.count_documents(query)
 
 # Inicializar la base de datos cuando se importe el módulo
 init_db()
+
+# Iniciar el scheduler de tareas automáticas
+_scheduler = None
+if SCHEDULER_AVAILABLE and db is not None:
+    try:
+        _scheduler = create_scheduler(db)
+        _scheduler.start()
+        print("[OK] Scheduler de recordatorios iniciado")
+    except Exception as _e:
+        print(f"[WARNING] No se pudo iniciar el scheduler: {_e}")
+
+# Registrar webhook de Telegram si hay URL configurada
+if TELEGRAM_AVAILABLE:
+    _webhook_url = os.environ.get("TELEGRAM_WEBHOOK_URL", "").strip()
+    if _webhook_url:
+        try:
+            from telegram_bot import set_webhook
+            if set_webhook(_webhook_url):
+                print(f"[OK] Webhook de Telegram registrado en: {_webhook_url}")
+            else:
+                print("[WARNING] No se pudo registrar el webhook de Telegram")
+        except Exception as _e:
+            print(f"[WARNING] Error registrando webhook Telegram: {_e}")
+    else:
+        print("[INFO] TELEGRAM_WEBHOOK_URL no configurada — el bot no recibirá mensajes hasta configurarla")
 
 # Templates HTML para Términos y Condiciones y Privacidad
 TERMINOS_TEMPLATE = """
@@ -1330,6 +1410,103 @@ AUTH_TEMPLATES = {
     </div>
 </body>
 </html>
+""",
+    'forgot_password': """
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Recuperar Contraseña - Finanzas Gatunas</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+        .auth-container { background: white; border-radius: 20px; padding: 40px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); max-width: 400px; width: 100%; }
+        .auth-header { text-align: center; margin-bottom: 30px; }
+        .auth-header h1 { color: #667eea; font-size: 2rem; margin-bottom: 10px; }
+        .auth-header p { color: #666; }
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; margin-bottom: 8px; color: #555; font-weight: 600; }
+        .form-group input { width: 100%; padding: 12px; border: 2px solid #e1e5e9; border-radius: 8px; font-size: 14px; transition: border-color 0.3s; }
+        .form-group input:focus { outline: none; border-color: #667eea; }
+        .btn { width: 100%; padding: 12px; background: #667eea; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: background 0.3s; }
+        .btn:hover { background: #5a6fd8; }
+        .alert { padding: 12px; border-radius: 8px; margin-bottom: 20px; }
+        .alert-error { background: #ffeaea; color: #d32f2f; border-left: 4px solid #d32f2f; }
+        .alert-success { background: #e8f5e8; color: #2e7d32; border-left: 4px solid #2e7d32; }
+        .auth-links { text-align: center; margin-top: 20px; }
+        .auth-links a { color: #667eea; text-decoration: none; }
+        .auth-links a:hover { text-decoration: underline; }
+    </style>
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-header">
+            <h1>🐱 Finanzas Gatunas</h1>
+            <p>Recuperar Contraseña</p>
+        </div>
+        {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+        {% if mensaje %}<div class="alert alert-success">{{ mensaje }}</div>{% endif %}
+        <p style="color:#666; margin-bottom:20px; font-size:14px;">Ingresa tu email y te enviaremos un enlace para restablecer tu contraseña.</p>
+        <form method="POST" action="/forgot_password">
+            <div class="form-group">
+                <label for="email">Email</label>
+                <input type="email" id="email" name="email" required autofocus placeholder="tu@email.com">
+            </div>
+            <button type="submit" class="btn">Enviar enlace</button>
+        </form>
+        <div class="auth-links"><p><a href="/login">← Volver al login</a></p></div>
+    </div>
+</body>
+</html>
+""",
+    'reset_password': """
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nueva Contraseña - Finanzas Gatunas</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { font-family: 'Segoe UI', sans-serif; background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); min-height: 100vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+        .auth-container { background: white; border-radius: 20px; padding: 40px; box-shadow: 0 20px 60px rgba(0,0,0,0.3); max-width: 400px; width: 100%; }
+        .auth-header { text-align: center; margin-bottom: 30px; }
+        .auth-header h1 { color: #667eea; font-size: 2rem; margin-bottom: 10px; }
+        .auth-header p { color: #666; }
+        .form-group { margin-bottom: 20px; }
+        .form-group label { display: block; margin-bottom: 8px; color: #555; font-weight: 600; }
+        .form-group input { width: 100%; padding: 12px; border: 2px solid #e1e5e9; border-radius: 8px; font-size: 14px; transition: border-color 0.3s; }
+        .form-group input:focus { outline: none; border-color: #667eea; }
+        .btn { width: 100%; padding: 12px; background: #667eea; color: white; border: none; border-radius: 8px; font-size: 16px; font-weight: 600; cursor: pointer; transition: background 0.3s; }
+        .btn:hover { background: #5a6fd8; }
+        .alert { padding: 12px; border-radius: 8px; margin-bottom: 20px; }
+        .alert-error { background: #ffeaea; color: #d32f2f; border-left: 4px solid #d32f2f; }
+        .alert-success { background: #e8f5e8; color: #2e7d32; border-left: 4px solid #2e7d32; }
+    </style>
+</head>
+<body>
+    <div class="auth-container">
+        <div class="auth-header">
+            <h1>🐱 Finanzas Gatunas</h1>
+            <p>Nueva Contraseña</p>
+        </div>
+        {% if error %}<div class="alert alert-error">{{ error }}</div>{% endif %}
+        {% if mensaje %}<div class="alert alert-success">{{ mensaje }}</div>{% endif %}
+        <form method="POST">
+            <div class="form-group">
+                <label for="password">Nueva contraseña</label>
+                <input type="password" id="password" name="password" required minlength="6" autofocus placeholder="Mínimo 6 caracteres">
+            </div>
+            <div class="form-group">
+                <label for="password2">Confirmar contraseña</label>
+                <input type="password" id="password2" name="password2" required minlength="6" placeholder="Repite la contraseña">
+            </div>
+            <button type="submit" class="btn">Cambiar contraseña</button>
+        </form>
+    </div>
+</body>
+</html>
 """
 }
 
@@ -1917,6 +2094,12 @@ MAIN_PAGE_HTML = """
                     <a href="#settings" class="nav-link" onclick="showSection('settings')">
                         <i class="fas fa-cog"></i>
                         Configuración
+                    </a>
+                </li>
+                <li class="nav-item">
+                    <a href="javascript:void(0)" class="nav-link" onclick="openTelegramModal()" style="color: #29b6f6;">
+                        <i class="fas fa-paper-plane"></i>
+                        Conectar Telegram
                     </a>
                 </li>
                 <li class="nav-item">
@@ -3179,10 +3362,279 @@ MAIN_PAGE_HTML = """
                 });
             }
         });
+    <!-- ===== WIDGET CHAT IA - GATITO FINANCIERO ===== -->
+    <style>
+        /* === Botón flotante IA === */
+        #ai-fab {
+            position: fixed; bottom: 30px; right: 30px; z-index: 9000;
+            width: 60px; height: 60px; border-radius: 50%;
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white; font-size: 26px; border: none; cursor: pointer;
+            box-shadow: 0 6px 24px rgba(102,126,234,0.5);
+            transition: transform 0.2s, box-shadow 0.2s;
+            display: flex; align-items: center; justify-content: center;
+        }
+        #ai-fab:hover { transform: scale(1.12); box-shadow: 0 10px 30px rgba(102,126,234,0.7); }
+
+        /* === Panel de chat === */
+        #ai-panel {
+            position: fixed; bottom: 100px; right: 30px; z-index: 9000;
+            width: 360px; max-height: 500px;
+            background: white; border-radius: 20px;
+            box-shadow: 0 16px 48px rgba(0,0,0,0.2);
+            display: none; flex-direction: column; overflow: hidden;
+        }
+        #ai-panel.open { display: flex; }
+        #ai-panel-header {
+            background: linear-gradient(135deg, #667eea, #764ba2);
+            color: white; padding: 16px 20px;
+            display: flex; align-items: center; gap: 12px;
+            font-weight: 700; font-size: 15px;
+        }
+        #ai-panel-header span { flex: 1; }
+        #ai-close-btn {
+            background: rgba(255,255,255,0.2); border: none; color: white;
+            width: 28px; height: 28px; border-radius: 50%; cursor: pointer; font-size: 14px;
+        }
+        #ai-messages {
+            flex: 1; overflow-y: auto; padding: 16px;
+            display: flex; flex-direction: column; gap: 12px;
+            max-height: 330px;
+        }
+        .ai-msg { padding: 10px 14px; border-radius: 14px; font-size: 14px; line-height: 1.5; max-width: 90%; }
+        .ai-msg.user { background: #667eea; color: white; align-self: flex-end; border-bottom-right-radius: 4px; }
+        .ai-msg.bot  { background: #f3f4f8; color: #333; align-self: flex-start; border-bottom-left-radius: 4px; }
+        .ai-msg.typing { color: #888; font-style: italic; }
+        #ai-input-area {
+            padding: 12px 16px; border-top: 1px solid #e8eaf0;
+            display: flex; gap: 10px; align-items: center;
+        }
+        #ai-input {
+            flex: 1; border: 2px solid #e8eaf0; border-radius: 10px;
+            padding: 9px 13px; font-size: 14px; outline: none;
+            transition: border-color 0.2s;
+        }
+        #ai-input:focus { border-color: #667eea; }
+        #ai-send-btn {
+            background: #667eea; color: white; border: none;
+            width: 38px; height: 38px; border-radius: 10px; cursor: pointer; font-size: 16px;
+            transition: background 0.2s;
+        }
+        #ai-send-btn:hover { background: #5a6fd8; }
+        .ai-chips { display: flex; flex-wrap: wrap; gap: 6px; padding: 0 16px 12px; }
+        .ai-chip {
+            background: #f0f2ff; color: #667eea; border: 1px solid #d0d5f5;
+            border-radius: 20px; padding: 5px 12px; font-size: 12px;
+            cursor: pointer; transition: background 0.2s;
+        }
+        .ai-chip:hover { background: #667eea; color: white; }
+
+        /* === Modal de Telegram === */
+        #tg-modal-overlay {
+            display: none; position: fixed; inset: 0; z-index: 8500;
+            background: rgba(0,0,0,0.45); align-items: center; justify-content: center;
+        }
+        #tg-modal-overlay.open { display: flex; }
+        #tg-modal {
+            background: white; border-radius: 20px; padding: 36px;
+            max-width: 420px; width: 90%; box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+            text-align: center;
+        }
+        #tg-modal h2 { color: #667eea; margin-bottom: 10px; }
+        #tg-modal p { color: #555; line-height: 1.6; margin-bottom: 16px; }
+        .tg-code-box {
+            background: #f3f4f8; border-radius: 12px; padding: 18px;
+            font-size: 36px; font-weight: 800; letter-spacing: 8px;
+            color: #667eea; margin: 16px 0;
+        }
+        .tg-btn {
+            display: inline-block; background: #667eea; color: white;
+            padding: 12px 28px; border-radius: 10px; text-decoration: none;
+            font-weight: 600; font-size: 15px; margin: 8px 6px;
+            cursor: pointer; border: none; transition: background 0.2s;
+        }
+        .tg-btn:hover { background: #5a6fd8; }
+        .tg-btn.secondary { background: #e8eaf0; color: #555; }
+        .tg-btn.secondary:hover { background: #d0d3df; }
+        .tg-btn.danger { background: #f44336; }
+        .tg-status-badge {
+            display: inline-flex; align-items: center; gap: 6px;
+            background: #e8f5e9; color: #2e7d32; border-radius: 50px;
+            padding: 6px 16px; font-size: 13px; font-weight: 600; margin-bottom: 16px;
+        }
+    </style>
+
+    <!-- Botón flotante -->
+    <button id="ai-fab" title="Asesor Financiero IA" onclick="toggleAIPanel()">🐱</button>
+
+    <!-- Panel de chat -->
+    <div id="ai-panel">
+        <div id="ai-panel-header">
+            <span>🐱 Gatito Financiero</span>
+            <small style="font-weight:400; opacity:0.85;">Powered by Gemini</small>
+            <button id="ai-close-btn" onclick="toggleAIPanel()">✕</button>
+        </div>
+        <div id="ai-messages">
+            <div class="ai-msg bot">¡Hola! 🐱 Soy tu asesor financiero. ¿En qué te puedo ayudar hoy?</div>
+        </div>
+        <div class="ai-chips">
+            <span class="ai-chip" onclick="sendQuickMsg('¿Cuánto gasté este mes?')">¿Cuánto gasté?</span>
+            <span class="ai-chip" onclick="sendQuickMsg('¿Cómo está mi balance?')">Mi balance</span>
+            <span class="ai-chip" onclick="sendQuickMsg('Dame consejos para ahorrar')">Consejos de ahorro</span>
+            <span class="ai-chip" onclick="sendQuickMsg('¿En qué categoría gasto más?')">Mayor categoría</span>
+        </div>
+        <div id="ai-input-area">
+            <input id="ai-input" type="text" placeholder="Pregúntame algo sobre tus finanzas…"
+                   onkeydown="if(event.key==='Enter') sendAIMessage()">
+            <button id="ai-send-btn" onclick="sendAIMessage()">➤</button>
+        </div>
+    </div>
+
+    <!-- Modal de Telegram -->
+    <div id="tg-modal-overlay">
+        <div id="tg-modal">
+            <h2>📲 Conectar Telegram</h2>
+            <div id="tg-status-area"></div>
+            <div id="tg-link-area"></div>
+        </div>
+    </div>
+
+    <script>
+        // ============================================================
+        // WIDGET DE CHAT IA
+        // ============================================================
+        function toggleAIPanel() {
+            const panel = document.getElementById('ai-panel');
+            panel.classList.toggle('open');
+        }
+
+        function sendQuickMsg(text) {
+            document.getElementById('ai-input').value = text;
+            sendAIMessage();
+        }
+
+        async function sendAIMessage() {
+            const input = document.getElementById('ai-input');
+            const msg = input.value.trim();
+            if (!msg) return;
+            input.value = '';
+
+            const messagesContainer = document.getElementById('ai-messages');
+            
+            // Agregar mensaje del usuario
+            const userBubble = document.createElement('div');
+            userBubble.className = 'ai-msg user';
+            userBubble.textContent = msg;
+            messagesContainer.appendChild(userBubble);
+
+            // Indicador de "escribiendo"
+            const typingBubble = document.createElement('div');
+            typingBubble.className = 'ai-msg bot typing';
+            typingBubble.textContent = '🐱 Pensando…';
+            messagesContainer.appendChild(typingBubble);
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+
+            try {
+                const response = await fetch('/api/ai/chat', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ message: msg })
+                });
+                const data = await response.json();
+
+                typingBubble.remove();
+
+                const botBubble = document.createElement('div');
+                botBubble.className = 'ai-msg bot';
+                botBubble.textContent = data.response || data.error || '😿 No pude procesar tu pregunta.';
+                messagesContainer.appendChild(botBubble);
+            } catch (e) {
+                typingBubble.textContent = '😿 Error de conexión. Intenta de nuevo.';
+                typingBubble.className = 'ai-msg bot';
+            }
+
+            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+        }
+
+        // ============================================================
+        // MODAL DE TELEGRAM
+        // ============================================================
+        async function openTelegramModal() {
+            document.getElementById('tg-modal-overlay').classList.add('open');
+            const statusArea = document.getElementById('tg-status-area');
+            const linkArea = document.getElementById('tg-link-area');
+            statusArea.innerHTML = '<p>Cargando…</p>';
+            linkArea.innerHTML = '';
+
+            try {
+                const res = await fetch('/conectar_telegram');
+                const data = await res.json();
+
+                if (data.vinculado) {
+                    statusArea.innerHTML = `
+                        <div class="tg-status-badge">✅ Cuenta vinculada con @${data.telegram_nombre || 'Telegram'}</div>
+                        <p>Recibirás recordatorios y resúmenes automáticos en Telegram.</p>`;
+                    linkArea.innerHTML = `
+                        <button class="tg-btn danger" onclick="disconnectTelegram()">Desconectar Telegram</button>
+                        <button class="tg-btn secondary" onclick="closeTgModal()">Cerrar</button>`;
+                } else {
+                    statusArea.innerHTML = `
+                        <p>Genera un código y envíalo a tu bot de Telegram para vincular tu cuenta.</p>`;
+                    linkArea.innerHTML = `
+                        <button class="tg-btn" onclick="generateTgCode()">⚡ Generar código</button>
+                        <button class="tg-btn secondary" onclick="closeTgModal()">Cancelar</button>`;
+                }
+            } catch (e) {
+                statusArea.innerHTML = '<p style="color:red">Error al cargar estado.</p>';
+            }
+        }
+
+        async function generateTgCode() {
+            const linkArea = document.getElementById('tg-link-area');
+            const statusArea = document.getElementById('tg-status-area');
+            linkArea.innerHTML = '<p>Generando código…</p>';
+
+            try {
+                const res = await fetch('/conectar_telegram', { method: 'POST' });
+                const data = await res.json();
+                const codigo = data.codigo;
+                const botUrl = data.bot_url;
+
+                statusArea.innerHTML = `<p>Envía este código a <b><a href="https://t.me/Levi_CV_Bot" target="_blank">@Levi_CV_Bot</a></b> escribiendo:</p>`;
+                linkArea.innerHTML = `
+                    <div class="tg-code-box">${codigo}</div>
+                    <p style="font-size:13px; color:#888;">Expira en ${data.expira_en} minutos</p>
+                    <a href="${botUrl}" target="_blank" class="tg-btn">Abrir bot en Telegram</a>
+                    <button class="tg-btn secondary" onclick="closeTgModal()">Cerrar</button>`;
+            } catch (e) {
+                linkArea.innerHTML = '<p style="color:red">Error al generar código.</p>';
+            }
+        }
+
+        async function disconnectTelegram() {
+            if (!confirm('¿Seguro que quieres desconectar tu cuenta de Telegram?')) return;
+            try {
+                await fetch('/desconectar_telegram', { method: 'POST' });
+                closeTgModal();
+                alert('Cuenta de Telegram desvinculada.');
+            } catch (e) {
+                alert('Error al desconectar.');
+            }
+        }
+
+        function closeTgModal() {
+            document.getElementById('tg-modal-overlay').classList.remove('open');
+        }
+
+        // Cerrar modal clickando fuera
+        document.getElementById('tg-modal-overlay').addEventListener('click', function(e) {
+            if (e.target === this) closeTgModal();
+        });
     </script>
 </body>
 </html>
 """
+
 
 # ===== RUTAS DE AUTENTICACIÓN =====
 
@@ -3197,6 +3649,7 @@ def privacidad():
     return render_template_string(PRIVACIDAD_TEMPLATE)
 
 @app.route('/register', methods=['GET', 'POST'])
+@limiter.limit("10 per minute")
 def register():
     """Registro de nuevo usuario"""
     if request.method == 'POST':
@@ -3342,6 +3795,9 @@ def verify_email():
             {'_id': ObjectId(usuario_id)},
             {'$set': {'email_verificado': True}}
         )
+        # Crear datos por defecto para el nuevo usuario (tarjetas y categorías)
+        if usuario_id:
+            init_user_data(usuario_id)
         
         # Verificar si hay una invitación pendiente
         invitacion_id = session.get('invitacion_pendiente') or request.args.get('invitacion_id')
@@ -3403,6 +3859,7 @@ def resend_code():
     return redirect('/register?error=Usuario no encontrado')
 
 @app.route('/login', methods=['GET', 'POST'])
+@limiter.limit("15 per minute")
 def login():
     """Iniciar sesión"""
     if request.method == 'POST':
@@ -4418,6 +4875,367 @@ def delete_categoria(id):
         return redirect('/?success=categoria_eliminada&section=transactions')
     except Exception as e:
         return redirect('/?error=' + str(e) + '&section=transactions')
+
+# ===== RUTAS: GEMINI AI =====
+
+@app.route('/api/ai/chat', methods=['POST'])
+@login_required
+def ai_chat():
+    """Endpoint del asesor financiero IA (Gemini)"""
+    try:
+        data = request.get_json() or {}
+        message = data.get('message', '').strip()
+        if not message:
+            return jsonify({'error': 'Mensaje vacío'}), 400
+
+        usuario_id = str(current_user.id)
+        balance = get_balance(usuario_id)
+        stats = get_dashboard_stats(usuario_id)
+
+        # Balance del mes actual
+        hoy = datetime.now()
+        inicio_mes = hoy.replace(day=1).strftime('%Y-%m-%d')
+        fin_mes = (hoy.replace(day=28) + timedelta(days=4)).replace(day=1) - timedelta(days=1)
+        fin_mes_str = fin_mes.strftime('%Y-%m-%d')
+
+        ing_cur = db.transacciones.aggregate([
+            {'$match': {'usuario_id': usuario_id, 'tipo': 'ingreso',
+                        'fecha': {'$gte': inicio_mes, '$lte': fin_mes_str}}},
+            {'$group': {'_id': None, 'total': {'$sum': '$monto'}}}
+        ]) if db is not None else iter([])
+        ingresos_mes = next(ing_cur, {}).get('total', 0) or 0
+
+        gas_cur = db.transacciones.aggregate([
+            {'$match': {'usuario_id': usuario_id, 'tipo': 'gasto',
+                        'fecha': {'$gte': inicio_mes, '$lte': fin_mes_str}}},
+            {'$group': {'_id': None, 'total': {'$sum': '$monto'}}}
+        ]) if db is not None else iter([])
+        gastos_mes = next(gas_cur, {}).get('total', 0) or 0
+
+        context = {
+            'balance': balance.get('balance', 0),
+            'ingresos_mes': ingresos_mes,
+            'gastos_mes': gastos_mes,
+            'membresias_mensual': balance.get('membresias_mensuales', 0),
+            'top_categorias': stats.get('gastos_por_categoria', [])[:5],
+            'recordatorios_pendientes': len(stats.get('recordatorios_urgentes', [])),
+            'mes_actual': hoy.strftime('%B %Y'),
+        }
+
+        respuesta = get_ai_advice(message, context)
+        return jsonify({'response': respuesta})
+
+    except Exception as e:
+        print(f"[ERROR] Error en ai_chat: {e}")
+        return jsonify({'error': 'Error al procesar tu pregunta. Intenta de nuevo.'}), 500
+
+
+# ===== RUTAS: BOT DE TELEGRAM =====
+
+@app.route('/telegram/webhook', methods=['POST'])
+def telegram_webhook():
+    """Recibir actualizaciones del bot de Telegram vía webhook"""
+    if not TELEGRAM_AVAILABLE:
+        return jsonify({'ok': False}), 503
+    # Verificar firma del webhook si TELEGRAM_SECRET_TOKEN está configurado
+    secret = os.environ.get('TELEGRAM_SECRET_TOKEN', '')
+    if secret:
+        incoming = request.headers.get('X-Telegram-Bot-Api-Secret-Token', '')
+        if incoming != secret:
+            print("[WARNING] Webhook Telegram rechazado: token inválido")
+            return jsonify({'ok': False}), 403
+    try:
+        update = request.get_json()
+        if update and db is not None:
+            process_update(update, db)
+        return jsonify({'ok': True})
+    except Exception as e:
+        print(f"[ERROR] Error procesando webhook Telegram: {e}")
+        return jsonify({'ok': False}), 500
+
+
+@app.route('/conectar_telegram', methods=['GET', 'POST'])
+@login_required
+def conectar_telegram():
+    """Generar código de vinculación para conectar la cuenta con Telegram"""
+    if db is None:
+        return jsonify({'error': 'Base de datos no disponible'}), 503
+
+    usuario_id = str(current_user.id)
+
+    if request.method == 'GET':
+        # Devolver estado actual de la vinculación
+        usuario_doc = db.usuarios.find_one({'_id': ObjectId(usuario_id)})
+        chat_id = usuario_doc.get('telegram_chat_id', '') if usuario_doc else ''
+        vinculado = bool(chat_id)
+        telegram_nombre = usuario_doc.get('telegram_nombre', '') if usuario_doc else ''
+        bot_username = 'Levi_CV_Bot'
+        return jsonify({
+            'vinculado': vinculado,
+            'telegram_nombre': telegram_nombre,
+            'bot_username': bot_username,
+        })
+
+    # POST: generar nuevo código de vinculación
+    codigo = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+    expira = datetime.now() + timedelta(minutes=15)
+
+    db.usuarios.update_one(
+        {'_id': ObjectId(usuario_id)},
+        {'$set': {
+            'telegram_link_code': codigo,
+            'telegram_link_code_expires': expira,
+        }}
+    )
+
+    bot_username = 'Levi_CV_Bot'
+    return jsonify({
+        'codigo': codigo,
+        'bot_url': f'https://t.me/{bot_username}?start={codigo}',
+        'expira_en': 15,
+    })
+
+
+@app.route('/desconectar_telegram', methods=['POST'])
+@login_required
+def desconectar_telegram():
+    """Desvincular la cuenta de Telegram del usuario"""
+    if db is None:
+        return jsonify({'error': 'Base de datos no disponible'}), 503
+    try:
+        usuario_id = str(current_user.id)
+        db.usuarios.update_one(
+            {'_id': ObjectId(usuario_id)},
+            {'$unset': {'telegram_chat_id': '', 'telegram_nombre': '', 'telegram_vinculado_at': ''}}
+        )
+        return jsonify({'ok': True, 'mensaje': 'Cuenta de Telegram desvinculada'})
+    except Exception as e:
+        print(f"[ERROR] Error desvinculando Telegram: {e}")
+        return jsonify({'error': str(e)}), 500
+
+
+# ===== RUTAS NUEVAS =====
+
+# --- Recuperación de contraseña ---
+
+@app.route('/forgot_password', methods=['GET', 'POST'])
+@limiter.limit("5 per minute")
+def forgot_password():
+    """Solicitar enlace de recuperación de contraseña"""
+    if request.method == 'POST':
+        if db is None:
+            return render_template_string(AUTH_TEMPLATES['forgot_password'], error='Base de datos no disponible')
+        email = request.form.get('email', '').strip().lower()
+        usuario = db.usuarios.find_one({'email': email})
+        # Siempre mostrar éxito sin revelar si el email existe (evita enumeración)
+        if usuario:
+            s = URLSafeTimedSerializer(app.secret_key)
+            token = s.dumps(email, salt='reset-password')
+            db.password_resets.update_one(
+                {'email': email},
+                {'$set': {'token': token, 'email': email, 'expires_at': datetime.now() + timedelta(minutes=30), 'usado': False}},
+                upsert=True
+            )
+            reset_url = request.host_url.rstrip('/') + f'/reset_password/{token}'
+            mail_username = app.config.get('MAIL_USERNAME')
+            if mail_username:
+                try:
+                    sender = app.config.get('MAIL_DEFAULT_SENDER') or mail_username
+                    msg = Message(
+                        subject='Recuperar Contraseña - Finanzas Gatunas',
+                        recipients=[email], sender=sender,
+                        html=f"""
+                        <html><body style='font-family:Arial,sans-serif;padding:20px'>
+                        <h2 style='color:#667eea'>🐱 Finanzas Gatunas</h2>
+                        <p>Haz clic en el siguiente enlace para restablecer tu contraseña:</p>
+                        <a href='{reset_url}' style='background:#667eea;color:white;padding:12px 24px;border-radius:8px;text-decoration:none'>Restablecer Contraseña</a>
+                        <p style='margin-top:20px;color:#999'>Este enlace expira en 30 minutos. Si no lo solicitaste, ignóralo.</p>
+                        </body></html>"""
+                    )
+                    mail.send(msg)
+                    print(f"[OK] Email de reset enviado a {email}")
+                except Exception as e:
+                    print(f"[WARNING] Error enviando email reset: {e}")
+                    print(f"[INFO] Reset URL para {email}: {reset_url}")
+            else:
+                print(f"[INFO] Reset URL (dev) para {email}: {reset_url}")
+        mensaje = 'Si ese email está registrado, recibirás un enlace para restablecer tu contraseña.'
+        return render_template_string(AUTH_TEMPLATES['forgot_password'], mensaje=mensaje)
+    return render_template_string(AUTH_TEMPLATES['forgot_password'], error='', mensaje='')
+
+
+@app.route('/reset_password/<token>', methods=['GET', 'POST'])
+def reset_password(token):
+    """Restablecer contraseña con token válido"""
+    s = URLSafeTimedSerializer(app.secret_key)
+    try:
+        email = s.loads(token, salt='reset-password', max_age=1800)  # 30 min
+    except Exception:
+        return render_template_string(AUTH_TEMPLATES['reset_password'], error='El enlace es inválido o ha expirado.', mensaje='')
+
+    if request.method == 'POST':
+        if db is None:
+            return render_template_string(AUTH_TEMPLATES['reset_password'], error='Base de datos no disponible', mensaje='')
+        password = request.form.get('password', '')
+        password2 = request.form.get('password2', '')
+        if len(password) < 6:
+            return render_template_string(AUTH_TEMPLATES['reset_password'], error='La contraseña debe tener al menos 6 caracteres', mensaje='')
+        if password != password2:
+            return render_template_string(AUTH_TEMPLATES['reset_password'], error='Las contraseñas no coinciden', mensaje='')
+        reset_doc = db.password_resets.find_one({'email': email, 'token': token, 'usado': False})
+        if not reset_doc:
+            return render_template_string(AUTH_TEMPLATES['reset_password'], error='Enlace ya utilizado o inválido.', mensaje='')
+        db.usuarios.update_one({'email': email}, {'$set': {'password_hash': generate_password_hash(password)}})
+        db.password_resets.update_one({'email': email}, {'$set': {'usado': True}})
+        print(f"[OK] Contraseña restablecida para {email}")
+        return redirect('/login?mensaje=Contraseña restablecida. Ya puedes iniciar sesión.')
+    return render_template_string(AUTH_TEMPLATES['reset_password'], error='', mensaje='')
+
+
+# --- Metas de ahorro ---
+
+@app.route('/add_meta', methods=['POST'])
+@login_required
+def add_meta():
+    """Agregar nueva meta de ahorro"""
+    if db is None:
+        return jsonify({'error': 'Base de datos no disponible'}), 503
+    try:
+        usuario_id = str(current_user.id)
+        nombre = request.form.get('nombre', '').strip()
+        descripcion = request.form.get('descripcion', '').strip()
+        monto_objetivo = float(request.form.get('monto_objetivo', 0) or 0)
+        fecha_limite = request.form.get('fecha_limite', '')
+        icono = request.form.get('icono', '🎯')
+        if not nombre or monto_objetivo <= 0:
+            return redirect('/?error=Nombre y monto objetivo son requeridos&section=metas')
+        meta = {
+            'usuario_id': usuario_id, 'nombre': nombre, 'descripcion': descripcion,
+            'monto_objetivo': monto_objetivo, 'monto_actual': 0.0,
+            'fecha_limite': fecha_limite, 'icono': icono,
+            'estado': 'activa', 'created_at': datetime.now(), 'updated_at': datetime.now()
+        }
+        db.metas.insert_one(meta)
+        return redirect('/?success=Meta creada&section=metas')
+    except Exception as e:
+        print(f'[ERROR] Error en add_meta: {e}')
+        return redirect('/?error=Error al crear meta&section=metas')
+
+
+@app.route('/abonar_meta/<meta_id>', methods=['POST'])
+@login_required
+def abonar_meta(meta_id):
+    """Abonar monto a una meta de ahorro"""
+    if db is None:
+        return jsonify({'error': 'Base de datos no disponible'}), 503
+    try:
+        usuario_id = str(current_user.id)
+        meta = db.metas.find_one({'_id': ObjectId(meta_id), 'usuario_id': usuario_id})
+        if not meta:
+            return jsonify({'error': 'Meta no encontrada'}), 404
+        abono = float(request.form.get('abono', 0) or 0)
+        if abono <= 0:
+            return redirect('/?error=El abono debe ser mayor a 0&section=metas')
+        nuevo_total = float(meta.get('monto_actual', 0) or 0) + abono
+        estado = 'completada' if nuevo_total >= float(meta.get('monto_objetivo', 0) or 0) else 'activa'
+        db.metas.update_one(
+            {'_id': ObjectId(meta_id)},
+            {'$set': {'monto_actual': nuevo_total, 'estado': estado, 'updated_at': datetime.now()}}
+        )
+        return redirect('/?success=Abono registrado&section=metas')
+    except Exception as e:
+        print(f'[ERROR] Error en abonar_meta: {e}')
+        return redirect('/?error=Error al abonar&section=metas')
+
+
+@app.route('/delete_meta/<meta_id>')
+@login_required
+def delete_meta(meta_id):
+    """Eliminar una meta de ahorro"""
+    if db is None:
+        return redirect('/?error=Base de datos no disponible&section=metas')
+    try:
+        usuario_id = str(current_user.id)
+        meta = db.metas.find_one({'_id': ObjectId(meta_id), 'usuario_id': usuario_id})
+        if meta:
+            log_accion(usuario_id, 'delete', 'metas', meta_id, convert_mongo_to_dict(meta))
+            db.metas.delete_one({'_id': ObjectId(meta_id)})
+        return redirect('/?success=Meta eliminada&section=metas')
+    except Exception as e:
+        print(f'[ERROR] Error en delete_meta: {e}')
+        return redirect('/?error=Error al eliminar meta&section=metas')
+
+
+# --- Importación CSV ---
+
+@app.route('/import_csv', methods=['POST'])
+@login_required
+@limiter.limit("10 per hour")
+def import_csv():
+    """Importar transacciones desde un archivo CSV.
+    Columnas esperadas: fecha,descripcion,monto,tipo,categoria
+    """
+    if db is None:
+        return jsonify({'error': 'Base de datos no disponible'}), 503
+    file = request.files.get('archivo')
+    if not file or not file.filename.endswith('.csv'):
+        return redirect('/?error=Debes subir un archivo .csv&section=transacciones')
+    usuario_id = str(current_user.id)
+    categorias = {c['nombre'].lower(): str(c['id']) for c in get_categories(usuario_id)}
+    tarjeta_default = None
+    tarjetas = get_tarjetas(usuario_id)
+    if tarjetas:
+        tarjeta_default = tarjetas[0]['id']
+    importadas, errores = 0, []
+    try:
+        stream = file.stream.read().decode('utf-8', errors='replace')
+        reader = csv.DictReader(StringIO(stream))
+        for i, row in enumerate(reader, start=2):
+            try:
+                fecha = row.get('fecha', '').strip()
+                descripcion = row.get('descripcion', '').strip() or 'Importado'
+                monto = float(row.get('monto', 0) or 0)
+                tipo = row.get('tipo', 'gasto').strip().lower()
+                cat_nombre = row.get('categoria', '').strip().lower()
+                categoria_id = categorias.get(cat_nombre, '')
+                if tipo not in ('ingreso', 'gasto') or monto <= 0 or not fecha:
+                    errores.append(f'Fila {i}: datos inválidos')
+                    continue
+                db.transacciones.insert_one({
+                    'usuario_id': usuario_id, 'descripcion': descripcion,
+                    'monto': monto, 'tipo': tipo, 'fecha': fecha,
+                    'categoria_id': categoria_id, 'tarjeta_id': tarjeta_default or '',
+                    'created_at': datetime.now(), 'updated_at': datetime.now()
+                })
+                importadas += 1
+            except Exception as row_e:
+                errores.append(f'Fila {i}: {row_e}')
+    except Exception as e:
+        return redirect(f'/?error=Error leyendo CSV: {e}&section=transacciones')
+    msg = f'Importadas {importadas} transacciones.'
+    if errores:
+        msg += f' Errores en {len(errores)} filas.'
+    print(f"[OK] CSV importado para {usuario_id}: {importadas} transacciones, {len(errores)} errores")
+    return redirect(f'/?success={msg}&section=transacciones')
+
+
+# --- Configuración de moneda ---
+
+@app.route('/set_moneda', methods=['POST'])
+@login_required
+def set_moneda():
+    """Guardar moneda preferida del usuario"""
+    if db is None:
+        return jsonify({'error': 'Base de datos no disponible'}), 503
+    moneda = request.form.get('moneda', 'MXN').upper()
+    if moneda not in MONEDAS:
+        return jsonify({'error': 'Moneda no válida'}), 400
+    db.usuarios.update_one(
+        {'_id': ObjectId(str(current_user.id))},
+        {'$set': {'moneda': moneda, 'updated_at': datetime.now()}}
+    )
+    return redirect('/?success=Moneda actualizada&section=settings')
+
 
 # ===== HANDLER DE ERRORES GLOBAL =====
 

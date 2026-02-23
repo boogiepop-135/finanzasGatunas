@@ -34,6 +34,13 @@ services:
       - MAIL_USERNAME=${MAIL_USERNAME:-}
       - MAIL_PASSWORD=${MAIL_PASSWORD:-}
       - MAIL_DEFAULT_SENDER=${MAIL_DEFAULT_SENDER:-}
+      # IA - Gemini
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      # Bot de Telegram
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN:-}
+      - TELEGRAM_WEBHOOK_URL=${TELEGRAM_WEBHOOK_URL:-}
+      # Scheduler (zona horaria)
+      - TIMEZONE=${TIMEZONE:-America/Mexico_City}
     depends_on:
       - mongodb
     networks:
