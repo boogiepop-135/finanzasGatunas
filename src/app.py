@@ -141,55 +141,8 @@ def init_db():
 
 
 def init_user_data(usuario_id: str):
-    """Crear tarjetas y categorías por defecto para un nuevo usuario."""
-    if db is None:
-        return
-    # Solo crear si el usuario no tiene datos aún
-    if db.tarjetas.count_documents({'usuario_id': usuario_id}) == 0:
-        tarjetas_default = [
-            {'nombre': 'Efectivo', 'tipo': 'efectivo', 'banco': 'N/A',
-             'limite_credito': 0, 'fecha_vencimiento': None, 'color': '#4CAF50',
-             'icono': '💵', 'activa': True, 'usuario_id': usuario_id, 'created_at': datetime.now()},
-            {'nombre': 'Débito Principal', 'tipo': 'debito', 'banco': 'Banco Local',
-             'limite_credito': 0, 'fecha_vencimiento': None, 'color': '#2196F3',
-             'icono': '🏦', 'activa': True, 'usuario_id': usuario_id, 'created_at': datetime.now()},
-            {'nombre': 'Crédito Visa', 'tipo': 'credito', 'banco': 'Banco Principal',
-             'limite_credito': 50000, 'fecha_vencimiento': '2027-12-31', 'color': '#9C27B0',
-             'icono': '💳', 'activa': True, 'usuario_id': usuario_id, 'created_at': datetime.now()},
-        ]
-        db.tarjetas.insert_many(tarjetas_default)
-
-    if db.categorias.count_documents({'usuario_id': usuario_id}) == 0:
-        categorias_default = [
-            {'nombre': 'Salario', 'tipo': 'ingreso', 'color': '#4CAF50', 'icono': '💼',
-             'presupuesto_mensual': 0, 'activa': True, 'usuario_id': usuario_id, 'created_at': datetime.now()},
-            {'nombre': 'Freelance', 'tipo': 'ingreso', 'color': '#66BB6A', 'icono': '💻',
-             'presupuesto_mensual': 0, 'activa': True, 'usuario_id': usuario_id, 'created_at': datetime.now()},
-            {'nombre': 'Inversiones', 'tipo': 'ingreso', 'color': '#26A69A', 'icono': '📈',
-             'presupuesto_mensual': 0, 'activa': True, 'usuario_id': usuario_id, 'created_at': datetime.now()},
-            {'nombre': 'Alimentación', 'tipo': 'gasto', 'color': '#FF5722', 'icono': '🍽️',
-             'presupuesto_mensual': 0, 'activa': True, 'usuario_id': usuario_id, 'created_at': datetime.now()},
-            {'nombre': 'Transporte', 'tipo': 'gasto', 'color': '#2196F3', 'icono': '🚗',
-             'presupuesto_mensual': 0, 'activa': True, 'usuario_id': usuario_id, 'created_at': datetime.now()},
-            {'nombre': 'Vivienda', 'tipo': 'gasto', 'color': '#9C27B0', 'icono': '🏠',
-             'presupuesto_mensual': 0, 'activa': True, 'usuario_id': usuario_id, 'created_at': datetime.now()},
-            {'nombre': 'Entretenimiento', 'tipo': 'gasto', 'color': '#FF9800', 'icono': '🎮',
-             'presupuesto_mensual': 0, 'activa': True, 'usuario_id': usuario_id, 'created_at': datetime.now()},
-            {'nombre': 'Salud', 'tipo': 'gasto', 'color': '#E91E63', 'icono': '🏥',
-             'presupuesto_mensual': 0, 'activa': True, 'usuario_id': usuario_id, 'created_at': datetime.now()},
-            {'nombre': 'Educación', 'tipo': 'gasto', 'color': '#607D8B', 'icono': '📚',
-             'presupuesto_mensual': 0, 'activa': True, 'usuario_id': usuario_id, 'created_at': datetime.now()},
-            {'nombre': 'Ropa', 'tipo': 'gasto', 'color': '#795548', 'icono': '👕',
-             'presupuesto_mensual': 0, 'activa': True, 'usuario_id': usuario_id, 'created_at': datetime.now()},
-            {'nombre': 'Membresías', 'tipo': 'gasto', 'color': '#FF5722', 'icono': '🎫',
-             'presupuesto_mensual': 0, 'activa': True, 'usuario_id': usuario_id, 'created_at': datetime.now()},
-            {'nombre': 'Servicios', 'tipo': 'gasto', 'color': '#3F51B5', 'icono': '🔌',
-             'presupuesto_mensual': 0, 'activa': True, 'usuario_id': usuario_id, 'created_at': datetime.now()},
-            {'nombre': 'Otros', 'tipo': 'gasto', 'color': '#9E9E9E', 'icono': '📦',
-             'presupuesto_mensual': 0, 'activa': True, 'usuario_id': usuario_id, 'created_at': datetime.now()},
-        ]
-        db.categorias.insert_many(categorias_default)
-    print(f"[OK] Datos iniciales creados para usuario {usuario_id}")
+    """Preparar cuenta nueva (sin datos de ejemplo). El usuario agrega sus propios datos."""
+    print(f"[OK] Cuenta lista para usuario {usuario_id}")
 
 def convert_mongo_to_dict(item):
     """Convertir documento MongoDB a diccionario con id como string"""
@@ -3728,26 +3681,16 @@ def register():
         }
         db.codigos_verificacion.insert_one(codigo_doc)
         
-        # Intentar enviar email (si no está configurado, mostrar código en consola)
-        mail_username = app.config.get('MAIL_USERNAME')
-        if mail_username:
-            if enviar_codigo_verificacion(email, codigo):
-                mensaje = 'Se ha enviado un código de verificación a tu email'
-            else:
-                # Si falla el envío, mostrar código en consola como fallback
-                print(f"[INFO] Código de verificación para {email}: {codigo}")
-                mensaje = f'Código de verificación (modo desarrollo - email no configurado): {codigo}'
-        else:
-            print(f"[INFO] Email no configurado. Código de verificación para {email}: {codigo}")
-            mensaje = f'Código de verificación (modo desarrollo): {codigo}'
+        # Verificación por correo próximamente — por ahora se activa la cuenta de inmediato
+        db.usuarios.update_one(
+            {'_id': ObjectId(usuario_id)},
+            {'$set': {'email_verificado': True}}
+        )
+        init_user_data(usuario_id)
         
-        # Guardar email en sesión para verificación
-        session['email_pendiente'] = email
-        session['usuario_id_pendiente'] = usuario_id
         if invitacion_id:
-            session['invitacion_pendiente'] = invitacion_id
-        
-        return redirect(f'/verify_email?mensaje={mensaje}&invitacion_id={invitacion_id}' if invitacion_id else f'/verify_email?mensaje={mensaje}')
+            return redirect(f'/login?invitacion_id={invitacion_id}&mensaje=Cuenta creada. Pronto recibirás un correo de bienvenida. Inicia sesión ahora.')
+        return redirect('/login?mensaje=✅ Cuenta creada. La verificación de correo estará disponible próximamente. ¡Ya puedes iniciar sesión!')
     
     # GET: Mostrar formulario de registro
     error = request.args.get('error', '')
