@@ -19,3 +19,6 @@ pytz==2024.1
 # Testing
 pytest==8.3.5
 mongomock==4.1.2
+# Dependencias transitivas fijadas para evitar incompatibilidades
+pyparsing>=3.0.0
+httplib2>=0.22.0
