@@ -13,7 +13,7 @@ import os
 from datetime import datetime, timedelta
 import json
 import csv
-from io import StringIO
+from io import StringIO, BytesIO
 import base64
 import matplotlib
 matplotlib.use('Agg')  # Para servidor sin GUI
@@ -141,8 +141,63 @@ def init_db():
 
 
 def init_user_data(usuario_id: str):
-    """Preparar cuenta nueva (sin datos de ejemplo). El usuario agrega sus propios datos."""
-    print(f"[OK] Cuenta lista para usuario {usuario_id}")
+    """Preparar cuenta nueva con categorías y métodos de pago por defecto."""
+    if db is None:
+        return
+        
+    now = datetime.now()
+    
+    # 1. Crear método de pago por defecto (Efectivo)
+    tarjeta_efectivo = {
+        'nombre': 'Efectivo',
+        'tipo': 'debito',
+        'banco': 'Billetera',
+        'limite_credito': 0,
+        'fecha_vencimiento': None,
+        'color': '#4CAF50',
+        'icono': '💵',
+        'activa': True,
+        'usuario_id': usuario_id,
+        'created_at': now
+    }
+    db.tarjetas.insert_one(tarjeta_efectivo)
+    
+    # 2. Crear categorías de ingresos por defecto
+    categorias_ingreso = [
+        {'nombre': 'Salario', 'tipo': 'ingreso', 'color': '#4CAF50', 'icono': '💼', 'activa': True},
+        {'nombre': 'Transferencia Recibida', 'tipo': 'ingreso', 'color': '#8BC34A', 'icono': '🏦', 'activa': True},
+        {'nombre': 'Otro Ingreso', 'tipo': 'ingreso', 'color': '#CDDC39', 'icono': '💰', 'activa': True}
+    ]
+    
+    for cat in categorias_ingreso:
+        cat['usuario_id'] = usuario_id
+        cat['created_at'] = now
+        cat['presupuesto_mensual'] = 0
+    
+    db.categorias.insert_many(categorias_ingreso)
+    
+    # 3. Crear categorías de gastos por defecto
+    categorias_gasto = [
+        {'nombre': 'Vivienda', 'tipo': 'gasto', 'color': '#3F51B5', 'icono': '🏠', 'activa': True},
+        {'nombre': 'Alimentación', 'tipo': 'gasto', 'color': '#E91E63', 'icono': '🍽️', 'activa': True},
+        {'nombre': 'Transporte', 'tipo': 'gasto', 'color': '#FF9800', 'icono': '🚗', 'activa': True},
+        {'nombre': 'Servicios', 'tipo': 'gasto', 'color': '#03A9F4', 'icono': '⚡', 'activa': True},
+        {'nombre': 'Salud', 'tipo': 'gasto', 'color': '#F44336', 'icono': '🏥', 'activa': True},
+        {'nombre': 'Educación', 'tipo': 'gasto', 'color': '#9C27B0', 'icono': '📚', 'activa': True},
+        {'nombre': 'Entretenimiento', 'tipo': 'gasto', 'color': '#FFEB3B', 'icono': '🎬', 'activa': True},
+        {'nombre': 'Ropa y Calzado', 'tipo': 'gasto', 'color': '#795548', 'icono': '👕', 'activa': True},
+        {'nombre': 'Mascotas', 'tipo': 'gasto', 'color': '#FF5722', 'icono': '🐾', 'activa': True},
+        {'nombre': 'Otro Gasto', 'tipo': 'gasto', 'color': '#9E9E9E', 'icono': '💸', 'activa': True}
+    ]
+
+    for cat in categorias_gasto:
+        cat['usuario_id'] = usuario_id
+        cat['created_at'] = now
+        cat['presupuesto_mensual'] = 0
+        
+    db.categorias.insert_many(categorias_gasto)
+
+    print(f"[OK] Cuenta lista con datos por defecto para usuario {usuario_id}")
 
 def convert_mongo_to_dict(item):
     """Convertir documento MongoDB a diccionario con id como string"""
@@ -595,10 +650,10 @@ def create_chart(transactions, chart_type='gastos_por_categoria', usuario_id=Non
         ax.tick_params(axis='x', rotation=45)
     
     # Convertir gráfica a base64
-    img = StringIO()
+    img = BytesIO()
     fig.savefig(img, format='png', bbox_inches='tight', dpi=100)
     img.seek(0)
-    img_base64 = base64.b64encode(img.getvalue().encode() if isinstance(img.getvalue(), str) else img.getvalue()).decode()
+    img_base64 = base64.b64encode(img.getvalue()).decode()
 
     return img_base64
 
@@ -4237,13 +4292,17 @@ def edit_transaction(id):
     if db is None:
         return redirect('/?error=Base de datos no disponible')
     
+    usuario_id = obtener_usuario_actual_id()
+    
     try:
         transaction = db.transacciones.find_one({'_id': ObjectId(id)})
+        if transaction and transaction.get('usuario_id') != usuario_id:
+            transaction = None
     except:
         transaction = None
     
     if not transaction:
-        return redirect('/?error=Transacción no encontrada')
+        return redirect('/?error=Transacción no encontrada o acceso denegado')
     
     # Por ahora redirigimos a la página principal con un mensaje
     # En una versión futura podríamos crear un formulario de edición
@@ -4257,6 +4316,13 @@ def delete_transaction(id):
         if db is None:
             return redirect('/?error=Base de datos no disponible&section=list')
         
+        usuario_id = obtener_usuario_actual_id()
+        
+        # Verificar pertenencia
+        transaction = db.transacciones.find_one({'_id': ObjectId(id)})
+        if not transaction or transaction.get('usuario_id') != usuario_id:
+            return redirect('/?error=Transacción no encontrada o acceso denegado&section=list')
+            
         try:
             db.transacciones.delete_one({'_id': ObjectId(id)})
         except:
@@ -4403,11 +4469,18 @@ def add_membresia():
 @login_required
 def edit_membresia(id):
     """Editar membresía"""
+    usuario_id = obtener_usuario_actual_id()
+    
     if request.method == 'POST':
         try:
             if db is None:
                 return redirect('/?error=Base de datos no disponible&section=membresias')
             
+            # Verificar pertenencia
+            membresia = db.membresias.find_one({'_id': ObjectId(id)})
+            if not membresia or membresia.get('usuario_id') != usuario_id:
+                return redirect('/?error=Membresía no encontrada o acceso denegado&section=membresias')
+                
             update_data = {
                 'nombre': request.form['nombre'],
                 'plataforma': request.form['plataforma'],
@@ -4423,7 +4496,7 @@ def edit_membresia(id):
             try:
                 db.membresias.update_one({'_id': ObjectId(id)}, {'$set': update_data})
             except:
-                return redirect('/?error=Membresía no encontrada&section=membresias')
+                return redirect('/?error=Error actualizando membresía&section=membresias')
             
             return redirect('/?success=membresia_editada&section=membresias')
         except Exception as e:
@@ -4435,11 +4508,13 @@ def edit_membresia(id):
     
     try:
         membresia = db.membresias.find_one({'_id': ObjectId(id)})
+        if membresia and membresia.get('usuario_id') != usuario_id:
+            membresia = None
     except:
         membresia = None
     
     if not membresia:
-        return redirect('/?error=Membresía no encontrada')
+        return redirect('/?error=Membresía no encontrada o acceso denegado')
     
     return redirect('/?edit_membresia_id=' + str(id))
 
@@ -4451,10 +4526,17 @@ def delete_membresia(id):
         if db is None:
             return redirect('/?error=Base de datos no disponible&section=membresias')
         
+        usuario_id = obtener_usuario_actual_id()
+        
+        # Verificar pertenencia
+        membresia = db.membresias.find_one({'_id': ObjectId(id)})
+        if not membresia or membresia.get('usuario_id') != usuario_id:
+            return redirect('/?error=Membresía no encontrada o acceso denegado&section=membresias')
+            
         try:
             db.membresias.delete_one({'_id': ObjectId(id)})
         except:
-            return redirect('/?error=Membresía no encontrada&section=membresias')
+            return redirect('/?error=Error al eliminar membresía&section=membresias')
         
         return redirect('/?success=membresia_eliminada&section=membresias')
     except Exception as e:
@@ -4494,11 +4576,18 @@ def add_tarjeta():
 @login_required
 def edit_tarjeta(id):
     """Editar tarjeta"""
+    usuario_id = obtener_usuario_actual_id()
+    
     if request.method == 'POST':
         try:
             if db is None:
                 return redirect('/?error=Base de datos no disponible&section=tarjetas')
             
+            # Verificar pertenencia
+            tarjeta = db.tarjetas.find_one({'_id': ObjectId(id)})
+            if not tarjeta or tarjeta.get('usuario_id') != usuario_id:
+                return redirect('/?error=Tarjeta no encontrada o acceso denegado&section=tarjetas')
+                
             update_data = {
                 'nombre': request.form['nombre'],
                 'tipo': request.form['tipo'],
@@ -4512,7 +4601,7 @@ def edit_tarjeta(id):
             try:
                 db.tarjetas.update_one({'_id': ObjectId(id)}, {'$set': update_data})
             except:
-                return redirect('/?error=Tarjeta no encontrada&section=tarjetas')
+                return redirect('/?error=Error actualizando tarjeta&section=tarjetas')
             
             return redirect('/?success=tarjeta_editada&section=tarjetas')
         except Exception as e:
@@ -4524,11 +4613,13 @@ def edit_tarjeta(id):
     
     try:
         tarjeta = db.tarjetas.find_one({'_id': ObjectId(id)})
+        if tarjeta and tarjeta.get('usuario_id') != usuario_id:
+            tarjeta = None
     except:
         tarjeta = None
     
     if not tarjeta:
-        return redirect('/?error=Tarjeta no encontrada')
+        return redirect('/?error=Tarjeta no encontrada o acceso denegado')
     
     return redirect('/?edit_tarjeta_id=' + str(id))
 
@@ -4540,10 +4631,17 @@ def delete_tarjeta(id):
         if db is None:
             return redirect('/?error=Base de datos no disponible&section=tarjetas')
         
+        usuario_id = obtener_usuario_actual_id()
+        
+        # Verificar pertenencia
+        tarjeta = db.tarjetas.find_one({'_id': ObjectId(id)})
+        if not tarjeta or tarjeta.get('usuario_id') != usuario_id:
+            return redirect('/?error=Tarjeta no encontrada o acceso denegado&section=tarjetas')
+            
         try:
             db.tarjetas.delete_one({'_id': ObjectId(id)})
         except:
-            return redirect('/?error=Tarjeta no encontrada&section=tarjetas')
+            return redirect('/?error=Error al eliminar tarjeta&section=tarjetas')
         
         return redirect('/?success=tarjeta_eliminada&section=tarjetas')
     except Exception as e:
@@ -4580,11 +4678,18 @@ def add_presupuesto():
 @login_required
 def edit_presupuesto(id):
     """Editar presupuesto"""
+    usuario_id = obtener_usuario_actual_id()
+    
     if request.method == 'POST':
         try:
             if db is None:
                 return redirect('/?error=Base de datos no disponible&section=presupuestos')
             
+            # Verificar pertenencia
+            presupuesto = db.presupuestos.find_one({'_id': ObjectId(id)})
+            if not presupuesto or presupuesto.get('usuario_id') != usuario_id:
+                return redirect('/?error=Presupuesto no encontrado o acceso denegado&section=presupuestos')
+                
             update_data = {
                 'mes': request.form['mes'],
                 'año': int(request.form['año']),
@@ -4595,7 +4700,7 @@ def edit_presupuesto(id):
             try:
                 db.presupuestos.update_one({'_id': ObjectId(id)}, {'$set': update_data})
             except:
-                return redirect('/?error=Presupuesto no encontrado&section=presupuestos')
+                return redirect('/?error=Error actualizando presupuesto&section=presupuestos')
             
             return redirect('/?success=presupuesto_editado&section=presupuestos')
         except Exception as e:
@@ -4607,11 +4712,13 @@ def edit_presupuesto(id):
     
     try:
         presupuesto = db.presupuestos.find_one({'_id': ObjectId(id)})
+        if presupuesto and presupuesto.get('usuario_id') != usuario_id:
+            presupuesto = None
     except:
         presupuesto = None
     
     if not presupuesto:
-        return redirect('/?error=Presupuesto no encontrado')
+        return redirect('/?error=Presupuesto no encontrado o acceso denegado')
     
     return redirect('/?edit_presupuesto_id=' + str(id))
 
@@ -4623,10 +4730,17 @@ def delete_presupuesto(id):
         if db is None:
             return redirect('/?error=Base de datos no disponible&section=presupuestos')
         
+        usuario_id = obtener_usuario_actual_id()
+        
+        # Verificar pertenencia
+        presupuesto = db.presupuestos.find_one({'_id': ObjectId(id)})
+        if not presupuesto or presupuesto.get('usuario_id') != usuario_id:
+            return redirect('/?error=Presupuesto no encontrado o acceso denegado&section=presupuestos')
+            
         try:
             db.presupuestos.delete_one({'_id': ObjectId(id)})
         except:
-            return redirect('/?error=Presupuesto no encontrado&section=presupuestos')
+            return redirect('/?error=Error al eliminar presupuesto&section=presupuestos')
         
         return redirect('/?success=presupuesto_eliminado&section=presupuestos')
     except Exception as e:
@@ -4670,10 +4784,17 @@ def add_recordatorio():
 @login_required
 def edit_recordatorio(id):
     """Editar recordatorio"""
+    usuario_id = obtener_usuario_actual_id()
+    
     if request.method == 'POST':
         try:
             if db is None:
                 return redirect('/?error=Base de datos no disponible&section=recordatorios')
+            
+            # Verificar pertenencia
+            recordatorio = db.recordatorios.find_one({'_id': ObjectId(id)})
+            if not recordatorio or recordatorio.get('usuario_id') != usuario_id:
+                return redirect('/?error=Recordatorio no encontrado o acceso denegado&section=recordatorios')
             
             update_data = {
                 'titulo': request.form['titulo'],
@@ -4688,7 +4809,7 @@ def edit_recordatorio(id):
             try:
                 db.recordatorios.update_one({'_id': ObjectId(id)}, {'$set': update_data})
             except:
-                return redirect('/?error=Recordatorio no encontrado&section=recordatorios')
+                return redirect('/?error=Error actualizando recordatorio&section=recordatorios')
             
             return redirect('/?success=recordatorio_editado&section=recordatorios')
         except Exception as e:
@@ -4700,11 +4821,13 @@ def edit_recordatorio(id):
     
     try:
         recordatorio = db.recordatorios.find_one({'_id': ObjectId(id)})
+        if recordatorio and recordatorio.get('usuario_id') != usuario_id:
+            recordatorio = None
     except:
         recordatorio = None
     
     if not recordatorio:
-        return redirect('/?error=Recordatorio no encontrado')
+        return redirect('/?error=Recordatorio no encontrado o acceso denegado')
     
     return redirect('/?edit_recordatorio_id=' + str(id))
 
@@ -4716,10 +4839,17 @@ def delete_recordatorio(id):
         if db is None:
             return redirect('/?error=Base de datos no disponible&section=recordatorios')
         
+        usuario_id = obtener_usuario_actual_id()
+        
+        # Verificar pertenencia
+        recordatorio = db.recordatorios.find_one({'_id': ObjectId(id)})
+        if not recordatorio or recordatorio.get('usuario_id') != usuario_id:
+            return redirect('/?error=Recordatorio no encontrado o acceso denegado&section=recordatorios')
+            
         try:
             db.recordatorios.delete_one({'_id': ObjectId(id)})
         except:
-            return redirect('/?error=Recordatorio no encontrado&section=recordatorios')
+            return redirect('/?error=Error al eliminar recordatorio&section=recordatorios')
         
         return redirect('/?success=recordatorio_eliminado&section=recordatorios')
     except Exception as e:
@@ -4744,12 +4874,14 @@ def completar_recordatorio(id):
 # ===== RUTAS PARA CATEGORÍAS =====
 
 @app.route('/add_categoria', methods=['POST'])
+@login_required
 def add_categoria():
     """Agregar nueva categoría"""
     try:
         if db is None:
             return redirect('/?error=Base de datos no disponible&section=transactions')
         
+        usuario_id = obtener_usuario_actual_id()
         categoria = {
             'nombre': request.form['nombre'],
             'tipo': request.form['tipo'],
@@ -4757,6 +4889,7 @@ def add_categoria():
             'icono': request.form.get('icono', '💰'),
             'presupuesto_mensual': float(request.form.get('presupuesto_mensual', 0)),
             'activa': True,
+            'usuario_id': usuario_id,
             'created_at': datetime.now()
         }
         
@@ -4767,12 +4900,20 @@ def add_categoria():
         return redirect('/?error=' + str(e) + '&section=transactions')
 
 @app.route('/edit_categoria/<id>', methods=['GET', 'POST'])
+@login_required
 def edit_categoria(id):
     """Editar categoría"""
+    usuario_id = obtener_usuario_actual_id()
+    
     if request.method == 'POST':
         try:
             if db is None:
                 return redirect('/?error=Base de datos no disponible&section=transactions')
+            
+            # Verificar pertenencia de la categoría
+            categoria = db.categorias.find_one({'_id': ObjectId(id)})
+            if not categoria or categoria.get('usuario_id') != usuario_id:
+                return redirect('/?error=Categoría no encontrada o acceso denegado&section=transactions')
             
             update_data = {
                 'nombre': request.form['nombre'],
@@ -4785,7 +4926,7 @@ def edit_categoria(id):
             try:
                 db.categorias.update_one({'_id': ObjectId(id)}, {'$set': update_data})
             except:
-                return redirect('/?error=Categoría no encontrada&section=transactions')
+                return redirect('/?error=Error actualizando categoría&section=transactions')
             
             return redirect('/?success=categoria_editada&section=transactions')
         except Exception as e:
@@ -4797,6 +4938,8 @@ def edit_categoria(id):
     
     try:
         categoria = db.categorias.find_one({'_id': ObjectId(id)})
+        if categoria and categoria.get('usuario_id') != usuario_id:
+            categoria = None
     except:
         categoria = None
     
@@ -4806,16 +4949,24 @@ def edit_categoria(id):
     return redirect('/?edit_categoria_id=' + str(id))
 
 @app.route('/delete_categoria/<id>')
+@login_required
 def delete_categoria(id):
     """Eliminar categoría"""
     try:
         if db is None:
             return redirect('/?error=Base de datos no disponible&section=transactions')
         
+        usuario_id = obtener_usuario_actual_id()
+        
+        # Verificar pertenencia de la categoría
+        categoria = db.categorias.find_one({'_id': ObjectId(id)})
+        if not categoria or categoria.get('usuario_id') != usuario_id:
+            return redirect('/?error=Categoría no encontrada o acceso denegado&section=transactions')
+            
         try:
             db.categorias.delete_one({'_id': ObjectId(id)})
         except:
-            return redirect('/?error=Categoría no encontrada&section=transactions')
+            return redirect('/?error=Error al eliminar categoría&section=transactions')
         
         return redirect('/?success=categoria_eliminada&section=transactions')
     except Exception as e:
