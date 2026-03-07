@@ -2099,6 +2099,12 @@ MAIN_PAGE_HTML = """
                     </a>
                 </li>
                 <li class="nav-item">
+                    <a href="#ahorros" class="nav-link" onclick="showSection('ahorros')">
+                        <i class="fas fa-piggy-bank"></i>
+                        Ahorros
+                    </a>
+                </li>
+                <li class="nav-item">
                     <a href="#settings" class="nav-link" onclick="showSection('settings')">
                         <i class="fas fa-cog"></i>
                         Configuración
@@ -2654,6 +2660,10 @@ MAIN_PAGE_HTML = """
                                     <label for="presupuesto_monto">Monto Planificado *</label>
                                     <input type="number" id="presupuesto_monto" name="monto_planificado" step="0.01" min="0" required>
                                 </div>
+                                <div class="form-group">
+                                    <label for="presupuesto_usos">Límite de Usos/Pedidos</label>
+                                    <input type="number" id="presupuesto_usos" name="limite_usos" min="1" placeholder="Dejar en blanco si no aplica">
+                                </div>
                             </div>
                             <div class="form-row">
                                 <button type="submit" class="btn btn-primary">
@@ -2672,27 +2682,48 @@ MAIN_PAGE_HTML = """
                             <tr>
                                 <th>Mes/Año</th>
                                 <th>Categoría</th>
-                                <th>Planificado</th>
-                                <th>Gastado</th>
+                                <th>Gasto / Plan</th>
                                 <th>Restante</th>
-                                <th>Porcentaje</th>
+                                <th>Usos/Límite</th>
+                                <th>Progreso</th>
+                                <th>Acciones</th>
                             </tr>
                         </thead>
                         <tbody>
                             {% for p in presupuestos %}
                             {% set porcentaje = (p.monto_gastado / p.monto_planificado * 100) if p.monto_planificado > 0 else 0 %}
+                            {% set pct_usos = (p.usos_actuales / p.limite_usos * 100) if p.limite_usos else 0 %}
                             <tr>
                                 <td>{{ p.mes }}/{{ p.año }}</td>
                                 <td>
                                     <span style="color: {{ p.color }};">{{ p.icono }} {{ p.categoria_nombre }}</span>
                                 </td>
-                                <td>${{ "%.2f"|format(p.monto_planificado) }}</td>
-                                <td>${{ "%.2f"|format(p.monto_gastado) }}</td>
+                                <td>${{ "%.2f"|format(p.monto_gastado) }} / ${{ "%.2f"|format(p.monto_planificado) }}</td>
                                 <td>${{ "%.2f"|format(p.monto_planificado - p.monto_gastado) }}</td>
                                 <td>
-                                    <span style="color: {{ '#FF5722' if porcentaje > 100 else '#4CAF50' if porcentaje < 80 else '#FF9800' }};">
-                                        {{ "%.1f"|format(porcentaje) }}%
+                                    {% if p.limite_usos %}
+                                        {{ p.usos_actuales }} / {{ p.limite_usos }}
+                                    {% else %}
+                                        N/A
+                                    {% endif %}
+                                </td>
+                                <td style="min-width: 120px;">
+                                    <div class="progress-bar" style="background: #e0e0e0; height: 6px; border-radius: 3px; margin-bottom: 4px; overflow: hidden;">
+                                        <div class="progress" style="width: {{ porcentaje if porcentaje <= 100 else 100 }}%; background: {{ '#FF5722' if porcentaje > 100 else '#4CAF50' if porcentaje < 80 else '#FF9800' }}; height: 100%; transition: width 0.3s;"></div>
+                                    </div>
+                                    {% if p.limite_usos %}
+                                    <div class="progress-bar" style="background: #e0e0e0; height: 6px; border-radius: 3px; overflow: hidden;">
+                                        <div class="progress" style="width: {{ pct_usos if pct_usos <= 100 else 100 }}%; background: {{ '#FF5722' if pct_usos > 100 else '#2196F3' }}; height: 100%; transition: width 0.3s;"></div>
+                                    </div>
+                                    {% endif %}
+                                    <span style="font-size: 0.8em; color: {{ '#FF5722' if porcentaje > 100 else '#666' }};">
+                                        {{ "%.1f"|format(porcentaje) }}% ($)
                                     </span>
+                                </td>
+                                <td>
+                                    <a href="/delete_presupuesto/{{ p.id }}" class="btn-icon" title="Eliminar" onclick="return confirm('¿Estás seguro de eliminar este presupuesto?')" style="color: #F44336;">
+                                        <i class="fas fa-trash"></i>
+                                    </a>
                                 </td>
                             </tr>
                             {% endfor %}
@@ -2961,6 +2992,81 @@ MAIN_PAGE_HTML = """
                                 {% endif %}
                             </tbody>
                         </table>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Ahorros / Metas -->
+            <div id="ahorros" class="section">
+                <div class="section-card">
+                    <h3><i class="fas fa-piggy-bank"></i> Metas de Ahorro</h3>
+                    
+                    <!-- Formulario para agregar meta de ahorro -->
+                    <div style="background: #f8f9fa; padding: 20px; border-radius: 10px; margin-bottom: 30px;">
+                        <h4 style="color: #667eea; margin-bottom: 15px;"><i class="fas fa-plus"></i> Nueva Meta</h4>
+                        <form method="POST" action="/add_meta">
+                            <div class="form-grid" style="grid-template-columns: 1fr 1fr; gap: 15px;">
+                                <div class="form-group">
+                                    <label for="meta_nombre">¿Para qué es el ahorro? *</label>
+                                    <input type="text" id="meta_nombre" name="nombre" required placeholder="Ej: Viaje a la playa">
+                                </div>
+                                <div class="form-group">
+                                    <label for="meta_objetivo">Monto Objetivo *</label>
+                                    <input type="number" id="meta_objetivo" name="monto_objetivo" step="0.01" min="1" required placeholder="Ej: 5000">
+                                </div>
+                                <div class="form-group">
+                                    <label for="meta_fecha">Fecha Límite (Opcional)</label>
+                                    <input type="date" id="meta_fecha" name="fecha_limite">
+                                </div>
+                                <div class="form-group" style="display: flex; align-items: flex-end;">
+                                    <button type="submit" class="btn btn-primary" style="width: 100%;">
+                                        <i class="fas fa-save"></i> Crear Meta
+                                    </button>
+                                </div>
+                            </div>
+                        </form>
+                    </div>
+                    
+                    <div class="cards-grid">
+                        {% if metas %}
+                            {% for meta in metas %}
+                            <div class="card" style="position: relative; border-left: 4px solid #667eea;">
+                                <div style="display: flex; justify-content: space-between; align-items: start; margin-bottom: 10px;">
+                                    <h3 style="margin: 0; color: #333;">{{ meta.nombre }}</h3>
+                                    <div class="actions">
+                                        <a href="javascript:void(0)" onclick="abonarAhorro('{{ meta.id }}', '{{ meta.nombre }}')" class="btn-icon" title="Abonar" style="color: #4CAF50;">
+                                            <i class="fas fa-plus-circle"></i>
+                                        </a>
+                                        <a href="/delete_meta/{{ meta.id }}" class="btn-icon" title="Eliminar" onclick="return confirm('¿Estás seguro de eliminar esta meta?')" style="color: #F44336;">
+                                            <i class="fas fa-trash"></i>
+                                        </a>
+                                    </div>
+                                </div>
+                                
+                                <p style="color: #666; font-size: 0.9em; margin-bottom: 15px;">
+                                    <i class="far fa-calendar-alt"></i> Fecha límite: {{ meta.fecha_limite if meta.fecha_limite else 'Sin definir' }}
+                                </p>
+                                
+                                <div class="progress-bar" style="background: #e0e0e0; height: 10px; border-radius: 5px; overflow: hidden; margin-bottom: 10px;">
+                                    <div class="progress" style="width: {{ meta.porcentaje }}%; background: {% if meta.porcentaje >= 100 %}#4CAF50{% else %}#667eea{% endif %}; height: 100%; transition: width 0.3s;"></div>
+                                </div>
+                                
+                                <div style="display: flex; justify-content: space-between; font-weight: bold; font-size: 0.9em;">
+                                    <span style="color: #667eea;">${{ "%.2f"|format(meta.monto_actual) }}</span>
+                                    <span style="color: #333;">${{ "%.2f"|format(meta.monto_objetivo) }}</span>
+                                </div>
+                                <div style="text-align: right; font-size: 0.8em; color: #666; margin-top: 5px; font-weight: bold;">
+                                    {{ meta.porcentaje }}%
+                                </div>
+                            </div>
+                            {% endfor %}
+                        {% else %}
+                            <div class="card" style="text-align: center; grid-column: 1 / -1; padding: 40px; border: 2px dashed #ccc; background: transparent; box-shadow: none;">
+                                <i class="fas fa-bullseye" style="font-size: 3em; color: #ccc; margin-bottom: 15px;"></i>
+                                <h4 style="color: #666;">No tienes metas de ahorro</h4>
+                                <p style="color: #999;">Crea tu primera meta para empezar a ahorrar con propósito</p>
+                            </div>
+                        {% endif %}
                     </div>
                 </div>
             </div>
@@ -3370,6 +3476,27 @@ MAIN_PAGE_HTML = """
                 });
             }
         });
+
+        function abonarAhorro(metaId, metaNombre) {
+            const amount = prompt(`¿Cuánto deseas abonar a la meta "${metaNombre}"?`);
+            if (amount !== null) {
+                const parsedAmount = parseFloat(amount);
+                if (!isNaN(parsedAmount) && parsedAmount > 0) {
+                    const form = document.createElement('form');
+                    form.method = 'POST';
+                    form.action = `/abonar_meta/${metaId}`;
+                    const input = document.createElement('input');
+                    input.type = 'hidden';
+                    input.name = 'abono';
+                    input.value = parsedAmount;
+                    form.appendChild(input);
+                    document.body.appendChild(form);
+                    form.submit();
+                } else {
+                    alert('Por favor ingresa un monto válido mayor a 0');
+                }
+            }
+        }
     </script>
 
     <!-- ===== WIDGET CHAT IA - GATITO FINANCIERO ===== -->
@@ -4142,6 +4269,7 @@ def home():
         recordatorios = get_recordatorios(usuario_id)
         transacciones = get_transactions(filtros, usuario_id)
         dashboard_stats = get_dashboard_stats(usuario_id)
+        metas = get_metas(usuario_id)
         
         # Obtener invitaciones pendientes y aceptadas
         invitaciones_pendientes = []
@@ -4244,6 +4372,7 @@ def home():
                                     filtros_aplicados=filtros_aplicados,
                                     total_filtrado=total_filtrado,
                                     chart_data=chart_data,
+                                    metas=metas,
                                     dashboard_stats=dashboard_stats,
                                     invitaciones_pendientes=invitaciones_pendientes,
                                     invitaciones_enviadas=invitaciones_enviadas,
